@@ -22,7 +22,7 @@ def outf(opts):
 
 
 def dinf(opts, name):
-    return open(os.path.join(opts['dir'], name))
+    return open(os.path.join(opts['dir'], name), 'rb')
 
 
 def decode(opts):
