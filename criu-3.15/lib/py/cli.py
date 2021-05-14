@@ -25,6 +25,10 @@ def dinf(opts, name):
     return open(os.path.join(opts['dir'], name), 'rb')
 
 
+def doutf(opts, name):
+    return open(os.path.join(opts['dir'], name), 'wb')
+
+
 def decode(opts):
     indent = None
 
@@ -329,11 +333,44 @@ def explore_rss(opts):
             print('%-24s%s' % (pstr, vstr))
 
 
+def explore_sunw(opts):
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    proc_num = 1
+    for p in ps_img['entries']:
+        pid = get_task_id(p, 'pid')
+        print("%d" % pid)
+        core = pycriu.images.load(dinf(opts, 'core-%d.img' % pid))['entries'][0]
+        sp = core['thread_info']['gpregs']['sp']
+        bp = core['thread_info']['gpregs']['bp']
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        pages_to_skip = 0
+        for pm in pms[1:]:
+            nr_pages = pm['nr_pages']
+            st_vaddr = pm['vaddr']
+            end_vaddr = st_vaddr + (nr_pages << 12)
+            if(sp > end_vaddr):
+                pages_to_skip += nr_pages
+                continue
+            else:
+                break
+
+        pages = dinf(opts, "pages-%d.img" % proc_num)
+        pages.seek((pages_to_skip)<<12)
+        stack = doutf(opts, "stack.img")
+        for i in range(nr_pages):
+            byt = pages.read(4096)
+            stack.write(byt)
+        
+        print('sp: %lx \nbp: %lx' % (sp, bp))
+
+
+
 explorers = {
     'ps': explore_ps,
     'fds': explore_fds,
     'mems': explore_mems,
-    'rss': explore_rss
+    'rss': explore_rss,
+    "sunw": explore_sunw,
 }
 
 
@@ -388,7 +425,7 @@ def main():
     # Explore
     x_parser = subparsers.add_parser('x', help='explore image dir')
     x_parser.add_argument('dir')
-    x_parser.add_argument('what', choices=['ps', 'fds', 'mems', 'rss'])
+    x_parser.add_argument('what', choices=['ps', 'fds', 'mems', 'rss', 'sunw'])
     x_parser.set_defaults(func=explore)
 
     # Show
