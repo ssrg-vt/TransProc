@@ -3,6 +3,7 @@ import argparse
 import sys
 import json
 import os
+import struct
 
 import pycriu
 
@@ -340,8 +341,14 @@ def explore_sunw(opts):
         pid = get_task_id(p, 'pid')
         print("%d" % pid)
         core = pycriu.images.load(dinf(opts, 'core-%d.img' % pid))['entries'][0]
-        sp = core['thread_info']['gpregs']['sp']
-        bp = core['thread_info']['gpregs']['bp']
+        if core['mtype'] == 'X86_64':
+            sp = core['thread_info']['gpregs']['sp']
+            bp = core['thread_info']['gpregs']['bp']
+            ip = core['thread_info']['gpregs']['ip']
+        elif core['mtype'] == 'AARCH64':
+            sp = core['ti_aarch64']['gpregs']['sp']
+            bp = core['ti_aarch64']['gpregs']['regs'][29]
+            ip = core['ti_aarch64']['gpregs']['pc']
         pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
         pages_to_skip = 0
         for pm in pms[1:]:
@@ -353,16 +360,15 @@ def explore_sunw(opts):
                 continue
             else:
                 break
-
-        pages = dinf(opts, "pages-%d.img" % proc_num)
-        pages.seek((pages_to_skip)<<12)
-        stack = doutf(opts, "stack.img")
-        for i in range(nr_pages):
-            byt = pages.read(4096)
-            stack.write(byt)
         
-        print('sp: %lx \nbp: %lx' % (sp, bp))
-
+        print('sp: 0x%lx' % sp)
+        while bp and bp > st_vaddr:
+            print('bp: 0x%lx' % bp)
+            print('ip: 0x%lx' % ip)
+            pages = dinf(opts, "pages-%d.img" % proc_num)
+            pages.seek(((pages_to_skip)<<12) + (bp - st_vaddr))
+            bp = struct.unpack('<Q', pages.read(8))[0]
+            ip = struct.unpack('<Q', pages.read(8))[0]
 
 
 explorers = {
