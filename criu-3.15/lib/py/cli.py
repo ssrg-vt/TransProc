@@ -368,12 +368,13 @@ def explore_sunw(opts):
             pages = dinf(opts, "pages-%d.img" % proc_num)
             pages.seek(((pages_to_skip)<<12) + (sp - st_vaddr))
             print('Stack Contents:')
-            for _ in range((bp - sp)/4):
-                a = struct.unpack('<I', pages.read(4))[0]
-                print('%d' % a)
-            a = struct.unpack('<I', pages.read((bp - sp)%4).ljust(4, '\0'))[0]
+            diff = bp - sp
+            for i in range(diff/8):
+                a = struct.unpack('<Q', pages.read(8))[0]
+                print('(RBP - 0x%x) 0x%lx (%ld)' % (diff - i*8, a, a))
+            a = struct.unpack('<Q', pages.read((bp - sp)%8).ljust(8, '\0'))[0]
             if a:
-                print('%d' % a)
+                print('0x%lx (%ld)' % (a, a))
             pages.seek(((pages_to_skip)<<12) + (bp - st_vaddr))
             sp = bp
             bp = struct.unpack('<Q', pages.read(8))[0]
