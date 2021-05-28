@@ -337,6 +337,14 @@ def explore_rss(opts):
 def explore_sunw(opts):
     ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     proc_num = 1
+    stream = os.popen(opts['nm'] + ' ' + opts['dir'] + '/' + opts['obj'] + " -n | grep 'T'")
+    output = stream.read()
+    if output == '':
+        print('Error parsing symbols from obj file.\n')
+        return
+    temp = [v.split(' ')[0] for v in output.split('\n')]
+    addresses = [int(a, 16) for a in temp if a != '']
+    funcs = [v.split(' ')[2] for v in output.split('\n') if v != '']
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
         print("%d" % pid)
@@ -363,8 +371,10 @@ def explore_sunw(opts):
         
         print('sp: 0x%lx' % sp)
         while bp and bp > st_vaddr:
+            adr = [a for a in addresses if a < ip]
+            i = len(adr) - 1
             print('\nbp: 0x%lx' % bp)
-            print('ip: 0x%lx' % ip)
+            print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
             pages = dinf(opts, "pages-%d.img" % proc_num)
             pages.seek(((pages_to_skip)<<12) + (sp - st_vaddr))
             print('Stack Contents:')
@@ -442,6 +452,8 @@ def main():
     x_parser = subparsers.add_parser('x', help='explore image dir')
     x_parser.add_argument('dir')
     x_parser.add_argument('what', choices=['ps', 'fds', 'mems', 'rss', 'sunw'])
+    x_parser.add_argument('nm', default='')
+    x_parser.add_argument('obj', default='')
     x_parser.set_defaults(func=explore)
 
     # Show
