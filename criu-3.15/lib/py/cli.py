@@ -36,9 +36,9 @@ def decode(opts):
     try:
         img = pycriu.images.load(inf(opts), opts['pretty'], opts['nopl'])
     except pycriu.images.MagicException as exc:
-        print("Unknown magic %#x.\n"\
-          "Maybe you are feeding me an image with "\
-          "raw data(i.e. pages.img)?" % exc.magic, file=sys.stderr)
+        print("Unknown magic %#x.\n"
+              "Maybe you are feeding me an image with "
+              "raw data(i.e. pages.img)?" % exc.magic, file=sys.stderr)
         sys.exit(1)
 
     if opts['pretty']:
@@ -337,7 +337,8 @@ def explore_rss(opts):
 def explore_sunw(opts):
     ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     proc_num = 1
-    stream = os.popen(opts['nm'] + ' ' + opts['dir'] + '/' + opts['obj'] + " -n | grep 'T'")
+    stream = os.popen(opts['nm'] + ' ' + opts['dir'] +
+                      '/' + opts['obj'] + " -n | grep 'T'")
     output = stream.read()
     if output == '':
         print('Error parsing symbols from obj file.\n')
@@ -348,7 +349,8 @@ def explore_sunw(opts):
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
         print("%d" % pid)
-        core = pycriu.images.load(dinf(opts, 'core-%d.img' % pid))['entries'][0]
+        core = pycriu.images.load(
+            dinf(opts, 'core-%d.img' % pid))['entries'][0]
         if core['mtype'] == 'X86_64':
             sp = core['thread_info']['gpregs']['sp']
             bp = core['thread_info']['gpregs']['bp']
@@ -368,7 +370,7 @@ def explore_sunw(opts):
                 continue
             else:
                 break
-        
+
         print('sp: 0x%lx' % sp)
         while bp and bp > st_vaddr:
             adr = [a for a in addresses if a < ip]
@@ -376,16 +378,17 @@ def explore_sunw(opts):
             print('\nbp: 0x%lx' % bp)
             print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
             pages = dinf(opts, "pages-%d.img" % proc_num)
-            pages.seek(((pages_to_skip)<<12) + (sp - st_vaddr))
+            pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
             print('Stack Contents:')
             diff = bp - sp
             for i in range(diff/8):
                 a = struct.unpack('<Q', pages.read(8))[0]
                 print('(RBP - 0x%x) 0x%lx (%ld)' % (diff - i*8, a, a))
-            a = struct.unpack('<Q', pages.read((bp - sp)%8).ljust(8, '\0'))[0]
+            a = struct.unpack('<Q', pages.read(
+                (bp - sp) % 8).ljust(8, '\0'))[0]
             if a:
                 print('0x%lx (%ld)' % (a, a))
-            pages.seek(((pages_to_skip)<<12) + (bp - st_vaddr))
+            pages.seek(((pages_to_skip) << 12) + (bp - st_vaddr))
             sp = bp
             bp = struct.unpack('<Q', pages.read(8))[0]
             ip = struct.unpack('<Q', pages.read(8))[0]
@@ -417,8 +420,7 @@ def main():
         'decode', help='convert criu image from binary type to json')
     decode_parser.add_argument(
         '--pretty',
-        help=
-        'Multiline with indents and some numerical fields in field-specific format',
+        help='Multiline with indents and some numerical fields in field-specific format',
         action='store_true')
     decode_parser.add_argument(
         '-i',
