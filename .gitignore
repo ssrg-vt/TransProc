@@ -53,3 +53,9 @@ dkms.conf
 
 # IDE files
 *.vscode
+
+attach_pid
+debugger
+criu-3.15.tar.bz2
+test/loop/loop
+vanilla-dump/
