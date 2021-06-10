@@ -372,11 +372,14 @@ def explore_sunw(opts):
                 break
 
         print('sp: 0x%lx' % sp)
-        while bp and bp > st_vaddr:
+        while True:
+            print('\nbp: 0x%lx' % bp)
             adr = [a for a in addresses if a <= ip]
             i = len(adr) - 1
-            print('\nbp: 0x%lx' % bp)
-            print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
+            if ip:
+                print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
+            if not bp or bp <= st_vaddr:
+                break
             pages = dinf(opts, "pages-%d.img" % proc_num)
             pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
             print('Stack Contents:')
@@ -392,6 +395,8 @@ def explore_sunw(opts):
             sp = bp
             bp = struct.unpack('<Q', pages.read(8))[0]
             ip = struct.unpack('<Q', pages.read(8))[0]
+
+
 
 
 explorers = {
