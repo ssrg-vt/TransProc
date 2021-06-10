@@ -373,7 +373,7 @@ def explore_sunw(opts):
 
         print('sp: 0x%lx' % sp)
         while bp and bp > st_vaddr:
-            adr = [a for a in addresses if a < ip]
+            adr = [a for a in addresses if a <= ip]
             i = len(adr) - 1
             print('\nbp: 0x%lx' % bp)
             print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
