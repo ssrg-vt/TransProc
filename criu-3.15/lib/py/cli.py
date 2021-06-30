@@ -401,11 +401,11 @@ def print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr):
         ba.append(struct.unpack('<Q', pages.read(8))[0])
     j = 1
     for i in range(len(ba)-1, 1, -1):
-        print('(RBP - 0x%x) 0x%lx (0x%ld)' % (j*8, ba[i], ba[i]))
+        print('(RBP - 0x%x) 0x%lx (%ld)' % (j*8, ba[i], ba[i]))
         j += 1
     sp = temp
     return (sp, bp, ip)
-    
+
 
 explorers = {
     'ps': explore_ps,
