@@ -373,31 +373,39 @@ def explore_sunw(opts):
 
         print('sp: 0x%lx' % sp)
         while True:
-            print('\nbp: 0x%lx' % bp)
             adr = [a for a in addresses if a <= ip]
-            i = len(adr) - 1
-            if ip:
-                print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
+            pages = dinf(opts, "pages-%d.img" % proc_num)
             if not bp or bp <= st_vaddr:
                 break
-            pages = dinf(opts, "pages-%d.img" % proc_num)
-            pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
-            print('Stack Contents:')
-            diff = bp - sp
-            for i in range(diff/8):
-                a = struct.unpack('<Q', pages.read(8))[0]
-                print('(RBP - 0x%x) 0x%lx (%ld)' % (diff - i*8, a, a))
-            a = struct.unpack('<Q', pages.read(
-                (bp - sp) % 8).ljust(8, '\0'))[0]
-            if a:
-                print('0x%lx (%ld)' % (a, a))
-            pages.seek(((pages_to_skip) << 12) + (bp - st_vaddr))
-            sp = bp
-            bp = struct.unpack('<Q', pages.read(8))[0]
-            ip = struct.unpack('<Q', pages.read(8))[0]
+            sp, bp, ip = print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
+        if ip:
+            adr = [a for a in addresses if a <= ip]
+            print('\nip: 0x%lx (%s + %d)' % (ip, funcs[len(adr)-1], ip - adr[-1]))
 
 
-
+def print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr):
+    print('\nbp: 0x%lx' % bp)
+    i = len(adr) - 1
+    if ip:
+        print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
+    temp = bp
+    pages.seek(((pages_to_skip) << 12) + (bp - st_vaddr))
+    bp = struct.unpack('<Q', pages.read(8))[0]
+    ip = struct.unpack('<Q', pages.read(8))[0]
+    print('(RBP + 0x8) 0x%lx (0x%ld)' % (ip, ip))
+    print('(RBP + 0x0) 0x%lx (0x%ld)' % (bp, bp))
+    pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
+    ba = []
+    diff = temp - sp
+    for _ in range(diff/8):
+        ba.append(struct.unpack('<Q', pages.read(8))[0])
+    j = 1
+    for i in range(len(ba)-1, 1, -1):
+        print('(RBP - 0x%x) 0x%lx (0x%ld)' % (j*8, ba[i], ba[i]))
+        j += 1
+    sp = temp
+    return (sp, bp, ip)
+    
 
 explorers = {
     'ps': explore_ps,
