@@ -2,39 +2,17 @@ from __future__ import print_function
 import argparse
 import sys
 import json
-import os
 import struct
 
 import pycriu
-
-
-def inf(opts):
-    if opts['in']:
-        return open(opts['in'], 'rb')
-    else:
-        return sys.stdin
-
-
-def outf(opts):
-    if opts['out']:
-        return open(opts['out'], 'w+')
-    else:
-        return sys.stdout
-
-
-def dinf(opts, name):
-    return open(os.path.join(opts['dir'], name), 'rb')
-
-
-def doutf(opts, name):
-    return open(os.path.join(opts['dir'], name), 'wb')
+import utils
 
 
 def decode(opts):
     indent = None
 
     try:
-        img = pycriu.images.load(inf(opts), opts['pretty'], opts['nopl'])
+        img = pycriu.images.load(utils.inf(opts), opts['pretty'], opts['nopl'])
     except pycriu.images.MagicException as exc:
         print("Unknown magic %#x.\n"
               "Maybe you are feeding me an image with "
@@ -44,19 +22,19 @@ def decode(opts):
     if opts['pretty']:
         indent = 4
 
-    f = outf(opts)
+    f = utils.outf(opts)
     json.dump(img, f, indent=indent)
     if f == sys.stdout:
         f.write("\n")
 
 
 def encode(opts):
-    img = json.load(inf(opts))
-    pycriu.images.dump(img, outf(opts))
+    img = json.load(utils.inf(opts))
+    pycriu.images.dump(img, utils.outf(opts))
 
 
 def info(opts):
-    infs = pycriu.images.info(inf(opts))
+    infs = pycriu.images.info(utils.inf(opts))
     json.dump(infs, sys.stdout, indent=4)
     print()
 
@@ -89,10 +67,10 @@ def show_ps(p, opts, depth=0):
 
 def explore_ps(opts):
     pss = {}
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         core = pycriu.images.load(
-            dinf(opts, 'core-%d.img' % get_task_id(p, 'pid')))
+            utils.dinf(opts, 'core-%d.img' % get_task_id(p, 'pid')))
         ps = ps_item(p, core['entries'][0])
         pss[ps.pid] = ps
 
@@ -119,7 +97,7 @@ def ftype_find_in_files(opts, ft, fid):
 
     if files_img is None:
         try:
-            files_img = pycriu.images.load(dinf(opts, "files.img"))['entries']
+            files_img = pycriu.images.load(utils.dinf(opts, "files.img"))['entries']
         except:
             files_img = []
 
@@ -139,7 +117,7 @@ def ftype_find_in_image(opts, ft, fid, img):
         return f[ft['field']]
 
     if ft['img'] == None:
-        ft['img'] = pycriu.images.load(dinf(opts, img))['entries']
+        ft['img'] = pycriu.images.load(utils.dinf(opts, img))['entries']
     for f in ft['img']:
         if f['id'] == fid:
             return f
@@ -203,18 +181,18 @@ def get_file_str(opts, fd):
 
 
 def explore_fds(opts):
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        idi = pycriu.images.load(dinf(opts, 'ids-%s.img' % pid))
+        idi = pycriu.images.load(utils.dinf(opts, 'ids-%s.img' % pid))
         fdt = idi['entries'][0]['files_id']
-        fdi = pycriu.images.load(dinf(opts, 'fdinfo-%d.img' % fdt))
+        fdi = pycriu.images.load(utils.dinf(opts, 'fdinfo-%d.img' % fdt))
 
         print("%d" % pid)
         for fd in fdi['entries']:
             print("\t%7d: %s" % (fd['fd'], get_file_str(opts, fd)))
 
-        fdi = pycriu.images.load(dinf(opts, 'fs-%d.img' % pid))['entries'][0]
+        fdi = pycriu.images.load(utils.dinf(opts, 'fs-%d.img' % pid))['entries'][0]
         print("\t%7s: %s" %
               ('cwd', get_file_str(opts, {
                   'type': 'REG',
@@ -243,11 +221,11 @@ class vma_id:
 
 
 def explore_mems(opts):
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
     vids = vma_id()
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+        mmi = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' % pid))['entries'][0]
 
         print("%d" % pid)
         print("\t%-36s    %s" % ('exe',
@@ -296,12 +274,12 @@ def explore_mems(opts):
 
 
 def explore_rss(opts):
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        vmas = pycriu.images.load(dinf(opts, 'mm-%d.img' %
+        vmas = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' %
                                        pid))['entries'][0]['vmas']
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        pms = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
 
         print("%d" % pid)
         vmi = 0
@@ -334,12 +312,10 @@ def explore_rss(opts):
             print('%-24s%s' % (pstr, vstr))
 
 
-def explore_sunw(opts):
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+def sunw(opts):
+    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
     proc_num = 1
-    stream = os.popen(opts['nm'] + ' ' + opts['dir'] +
-                      '/' + opts['obj'] + " -n | grep 'T'")
-    output = stream.read()
+    output = utils.get_obj_file_symbols(opts['nm'], opts['dir'], opts['obj'])
     if output == '':
         print('Error parsing symbols from obj file.\n')
         return
@@ -350,7 +326,7 @@ def explore_sunw(opts):
         pid = get_task_id(p, 'pid')
         print("%d" % pid)
         core = pycriu.images.load(
-            dinf(opts, 'core-%d.img' % pid))['entries'][0]
+            utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
         if core['mtype'] == 'X86_64':
             sp = core['thread_info']['gpregs']['sp']
             bp = core['thread_info']['gpregs']['bp']
@@ -359,7 +335,7 @@ def explore_sunw(opts):
             sp = core['ti_aarch64']['gpregs']['sp']
             bp = core['ti_aarch64']['gpregs']['regs'][29]
             ip = core['ti_aarch64']['gpregs']['pc']
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        pms = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
         pages_to_skip = 0
         for pm in pms[1:]:
             nr_pages = pm['nr_pages']
@@ -372,7 +348,7 @@ def explore_sunw(opts):
                 break
 
         print('sp: 0x%lx' % sp)
-        pages = dinf(opts, "pages-%d.img" % proc_num)
+        pages = utils.dinf(opts, "pages-%d.img" % proc_num)
         if sp != bp:
             pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
             for i in range(2):
@@ -383,34 +359,10 @@ def explore_sunw(opts):
             adr = [a for a in addresses if a <= ip]
             if not bp or bp <= st_vaddr:
                 break
-            sp, bp, ip = print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
+            sp, bp, ip = utils.print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
         if ip:
             adr = [a for a in addresses if a <= ip]
             print('\nip: 0x%lx (%s + %d)' % (ip, funcs[len(adr)-1], ip - adr[-1]))
-
-
-def print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr):
-    print('\nbp: 0x%lx' % bp)
-    i = len(adr) - 1
-    if ip:
-        print('ip: 0x%lx (%s + %d)' % (ip, funcs[i], ip - adr[-1]))
-    temp = bp
-    pages.seek(((pages_to_skip) << 12) + (bp - st_vaddr))
-    bp = struct.unpack('<Q', pages.read(8))[0]
-    ip = struct.unpack('<Q', pages.read(8))[0]
-    print('(RBP + 0x8) 0x%lx (0x%ld)' % (ip, ip))
-    print('(RBP + 0x0) 0x%lx (0x%ld)' % (bp, bp))
-    pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
-    ba = []
-    diff = temp - sp
-    for _ in range(diff/8):
-        ba.append(struct.unpack('<Q', pages.read(8))[0])
-    j = 1
-    for i in range(len(ba)-1, 1, -1):
-        print('(RBP - 0x%x) 0x%lx (%ld)' % (j*8, ba[i], ba[i]))
-        j += 1
-    sp = temp
-    return (sp, bp, ip)
 
 
 explorers = {
@@ -418,7 +370,6 @@ explorers = {
     'fds': explore_fds,
     'mems': explore_mems,
     'rss': explore_rss,
-    "sunw": explore_sunw,
 }
 
 
@@ -472,10 +423,16 @@ def main():
     # Explore
     x_parser = subparsers.add_parser('x', help='explore image dir')
     x_parser.add_argument('dir')
-    x_parser.add_argument('what', choices=['ps', 'fds', 'mems', 'rss', 'sunw'])
-    x_parser.add_argument('nm', default='')
-    x_parser.add_argument('obj', default='')
+    x_parser.add_argument('what', choices=['ps', 'fds', 'mems', 'rss'])
     x_parser.set_defaults(func=explore)
+
+    # Stack Unwind
+    sunw_parser = subparsers.add_parser('sunw', help='unwind stack from image files')
+    sunw_parser.add_argument('dir', help='directory where image files exist')
+    sunw_parser.add_argument('nm', help='GNU util nm')
+    sunw_parser.add_argument('obj', help='object file name')
+    sunw_parser.set_defaults(func=sunw)
+
 
     # Show
     show_parser = subparsers.add_parser(
