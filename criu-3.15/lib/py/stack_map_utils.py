@@ -149,12 +149,12 @@ def parse_call_site_records(buffer, sm_offset, num_records, record_offset):
         num_live_outs = struct.unpack(
             '<H', buffer[offset+22+(num_locations*LIVE_VALUE_SIZE): offset+24+(num_locations*LIVE_VALUE_SIZE)])[0]
         live_outs = parse_live_outs(
-            buffer, offset, num_live_outs, offset+24+(num_locations*LIVE_VALUE_SIZE))
+            buffer, offset, num_live_outs, 24+(num_locations*LIVE_VALUE_SIZE))
         padding2 = struct.unpack('<H', buffer[offset+24+(num_locations*LIVE_VALUE_SIZE)+(
             num_live_outs*LIVE_OUT_RECORD_SIZE): offset+26+(num_locations*LIVE_VALUE_SIZE)+(num_live_outs*LIVE_OUT_RECORD_SIZE)])[0]
         num_arch_live = struct.unpack('<H', buffer[offset+26+(num_locations*LIVE_VALUE_SIZE)+(
             num_live_outs*LIVE_OUT_RECORD_SIZE): offset+28+(num_locations*LIVE_VALUE_SIZE)+(num_live_outs*LIVE_OUT_RECORD_SIZE)])[0]
-        arch_lives = parse_arch_live(buffer, offset, num_arch_live, offset+28+(
+        arch_lives = parse_arch_live(buffer, offset, num_arch_live, 28+(
             num_locations*LIVE_VALUE_SIZE)+(num_live_outs*LIVE_OUT_RECORD_SIZE))
         call_site = CallSiteRecord(id, func_idx, offs, reserved, num_locations, locations,
                                    padding, num_live_outs, live_outs, padding2, num_arch_live, arch_lives)
@@ -203,7 +203,7 @@ def parse_arch_live(buffer, cs_offset, num_arch_live, al_offset):
         offset = cs_offset + al_offset + (i*ARCH_LIVE_VALUE_SIZE)
         val = buffer[offset]
         is_ptr = val & 0b00000001
-        bit_pad = (val & 0b00001110) >> 3
+        bit_pad = (val & 0b00001110) >> 1
         type = (val & 0b11110000) >> 4
         size = buffer[offset+1]
         regnum = struct.unpack('<H', buffer[offset+2: offset+4])[0]
