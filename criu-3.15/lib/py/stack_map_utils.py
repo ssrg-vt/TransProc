@@ -86,6 +86,48 @@ class StackMap:
         self.call_sites = call_sites
 
 
+def print_stack_map_data(stack_maps):
+    print("Found %d stackmaps" % len(stack_maps))
+    for sm in stack_maps:
+        print("Stackmap v%d: %d functions, %d constants, %d call sites" %
+              (sm.version, sm.num_functions, sm.num_constants, sm.num_records))
+        for func in sm.function_records:
+            print("  Function %d: address=0x%lx, stack size=%ld, number of unwinding entries: %d, offset into unwinding section: %d" %
+                  (func.record_count, func.function_addr, func.stack_size, func.num_unwind, func.unwind_offset))
+        for i in range(len(sm.constants)):
+            print("  Constant %d: %ld" % (i, sm.constants[i]))
+        for cs in sm.call_sites:
+            print("  Call site %d: function %d, offset @ %d, %d locations, %d live-outs, %d arch-specific locations" % (cs.id, cs.func_idx, cs.offset,
+            cs.num_locations, cs.num_live_outs, cs.num_arch_live))
+            for loc in cs.location:
+                string = "    Location: size: %d, in register %d" % (loc.size, loc.regnum)
+                if loc.type != 1:
+                    string += "+ %d" % (loc.offset_or_const)
+                if loc.is_temp:
+                    string += ", is temporary"
+                if loc.is_duplicate:
+                    string += ", is duplicate"
+                if loc.is_alloca:
+                    string += ", is alloca of size %d byte(s)" % (loc.alloca_size)
+                if loc.is_ptr:
+                    string += ", is a pointer"
+                print(string)
+            for lo in cs.live_outs:
+                print("    Live Out: in register %d and size %d" % (lo.regnum, lo.size))
+            for al in cs.arch_live:
+                string = "    Arch specific location: size %d, in register %d + %d, type: %d, operand type: %d, inst type: %d, operand size: %d, operand reg: %d + %ld" % \
+                (al.size, al.regnum, al.offset, al.type, al.operand_type, al.inst_type,\
+                      al.operand_size, al.operand_regnum, al.operand_offset_or_constant)
+                if al.is_ptr:
+                    string += ", is a pointer"
+                if al.is_gen:
+                    string += ", is gen"
+                print(string)
+                
+                
+
+
+
 def parse_stack_maps(section):
     buffer = section.data()
     offset = 0
@@ -97,10 +139,10 @@ def parse_stack_maps(section):
         num_funcs = struct.unpack('<I', buffer[offset+4:offset+8])[0]
         num_constants = struct.unpack('<I', buffer[offset+8:offset+12])[0]
         num_records = struct.unpack('<I', buffer[offset+12:offset+16])[0]
-        func_records = parse_function_records(buffer, offset, num_funcs, 16)
-        constants = parse_constants(
+        func_records = _parse_function_records(buffer, offset, num_funcs, 16)
+        constants = _parse_constants(
             buffer, offset, num_constants, 16+(num_funcs*FUNC_RECORD_SIZE))
-        (call_sites, offset) = parse_call_site_records(buffer, offset, num_records, 16+(
+        (call_sites, offset) = _parse_call_site_records(buffer, offset, num_records, 16+(
             num_funcs*FUNC_RECORD_SIZE)+(num_constants*CONST_RECORD_SIZE))
         stack_map = StackMap(version, reserved, reserved2, num_funcs,
                              num_constants, num_records, func_records, constants, call_sites)
@@ -108,7 +150,7 @@ def parse_stack_maps(section):
     return stack_maps
 
 
-def parse_function_records(buffer, sm_offset, num_funcs, func_offset):
+def _parse_function_records(buffer, sm_offset, num_funcs, func_offset):
     func_records = []
     for i in range(num_funcs):
         offset = sm_offset+func_offset+(i*FUNC_RECORD_SIZE)
@@ -123,7 +165,7 @@ def parse_function_records(buffer, sm_offset, num_funcs, func_offset):
     return func_records
 
 
-def parse_constants(buffer, sm_offset, num_constants, const_offset):
+def _parse_constants(buffer, sm_offset, num_constants, const_offset):
     constants = []
     for i in range(num_constants):
         offset = sm_offset + const_offset + (i*CONST_RECORD_SIZE)
@@ -132,7 +174,7 @@ def parse_constants(buffer, sm_offset, num_constants, const_offset):
     return constants
 
 
-def parse_call_site_records(buffer, sm_offset, num_records, record_offset):
+def _parse_call_site_records(buffer, sm_offset, num_records, record_offset):
     call_sites = []
     offset = sm_offset + record_offset
     for _ in range(num_records):
@@ -141,20 +183,20 @@ def parse_call_site_records(buffer, sm_offset, num_records, record_offset):
         offs = struct.unpack('<I', buffer[offset+12: offset+16])[0]
         reserved = struct.unpack('<H', buffer[offset+16: offset+18])[0]
         num_locations = struct.unpack('<H', buffer[offset+18: offset+20])[0]
-        locations = parse_live_values(buffer, offset, num_locations, 20)
+        locations = _parse_live_values(buffer, offset, num_locations, 20)
         # if (offset+20+(num_locations*LIVE_VALUE_SIZE)) % 8 != 0:
         #     offset += 4
         padding = struct.unpack(
             '<H', buffer[offset+20+(num_locations*LIVE_VALUE_SIZE): offset+22+(num_locations*LIVE_VALUE_SIZE)])[0]
         num_live_outs = struct.unpack(
             '<H', buffer[offset+22+(num_locations*LIVE_VALUE_SIZE): offset+24+(num_locations*LIVE_VALUE_SIZE)])[0]
-        live_outs = parse_live_outs(
+        live_outs = _parse_live_outs(
             buffer, offset, num_live_outs, 24+(num_locations*LIVE_VALUE_SIZE))
         padding2 = struct.unpack('<H', buffer[offset+24+(num_locations*LIVE_VALUE_SIZE)+(
             num_live_outs*LIVE_OUT_RECORD_SIZE): offset+26+(num_locations*LIVE_VALUE_SIZE)+(num_live_outs*LIVE_OUT_RECORD_SIZE)])[0]
         num_arch_live = struct.unpack('<H', buffer[offset+26+(num_locations*LIVE_VALUE_SIZE)+(
             num_live_outs*LIVE_OUT_RECORD_SIZE): offset+28+(num_locations*LIVE_VALUE_SIZE)+(num_live_outs*LIVE_OUT_RECORD_SIZE)])[0]
-        arch_lives = parse_arch_live(buffer, offset, num_arch_live, 28+(
+        arch_lives = _parse_arch_live(buffer, offset, num_arch_live, 28+(
             num_locations*LIVE_VALUE_SIZE)+(num_live_outs*LIVE_OUT_RECORD_SIZE))
         call_site = CallSiteRecord(id, func_idx, offs, reserved, num_locations, locations,
                                    padding, num_live_outs, live_outs, padding2, num_arch_live, arch_lives)
@@ -165,7 +207,7 @@ def parse_call_site_records(buffer, sm_offset, num_records, record_offset):
     return (call_sites, offset)
 
 
-def parse_live_values(buffer, cs_offset, num_locations, location_offset):
+def _parse_live_values(buffer, cs_offset, num_locations, location_offset):
     live_vals = []
     for i in range(num_locations):
         offset = cs_offset + location_offset + (i*LIVE_VALUE_SIZE)
@@ -185,7 +227,7 @@ def parse_live_values(buffer, cs_offset, num_locations, location_offset):
     return live_vals
 
 
-def parse_live_outs(buffer, cs_offset, num_live_outs, lo_offset):
+def _parse_live_outs(buffer, cs_offset, num_live_outs, lo_offset):
     live_outs = []
     for i in range(num_live_outs):
         offset = cs_offset + lo_offset + (i*LIVE_OUT_RECORD_SIZE)
@@ -197,7 +239,7 @@ def parse_live_outs(buffer, cs_offset, num_live_outs, lo_offset):
     return live_outs
 
 
-def parse_arch_live(buffer, cs_offset, num_arch_live, al_offset):
+def _parse_arch_live(buffer, cs_offset, num_arch_live, al_offset):
     arch_lives = []
     for i in range(num_arch_live):
         offset = cs_offset + al_offset + (i*ARCH_LIVE_VALUE_SIZE)

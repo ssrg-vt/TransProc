@@ -378,9 +378,9 @@ def sunw(opts):
 def sm_dump(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
     section = elf_utils.get_elf_section(elffile, '.llvm_pcn_stackmaps')
-    print(section.name)
+    print("Reading section: " + section.name)
     stack_maps = stack_map_utils.parse_stack_maps(section)
-    print("test")
+    stack_map_utils.print_stack_map_data(stack_maps)
 
 sm_utils = {
     'dump': sm_dump
