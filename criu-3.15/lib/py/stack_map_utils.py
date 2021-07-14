@@ -68,7 +68,9 @@ class CallSiteRecord:
         self.arch_live = arch_live
 
     def size(self):
-        return 32 + (self.num_locations * LIVE_VALUE_SIZE) + (self.num_live_outs * LIVE_OUT_RECORD_SIZE) + (self.num_arch_live * ARCH_LIVE_VALUE_SIZE)
+        return 28 + (self.num_locations * LIVE_VALUE_SIZE) + \
+            (self.num_live_outs * LIVE_OUT_RECORD_SIZE) + \
+            (self.num_arch_live * ARCH_LIVE_VALUE_SIZE)
 
 
 class StackMap:
@@ -98,15 +100,11 @@ def parse_stack_maps(section):
         func_records = parse_function_records(buffer, offset, num_funcs, 16)
         constants = parse_constants(
             buffer, offset, num_constants, 16+(num_funcs*FUNC_RECORD_SIZE))
-        call_sites = parse_call_site_records(buffer, offset, num_records, 16+(
+        (call_sites, offset) = parse_call_site_records(buffer, offset, num_records, 16+(
             num_funcs*FUNC_RECORD_SIZE)+(num_constants*CONST_RECORD_SIZE))
         stack_map = StackMap(version, reserved, reserved2, num_funcs,
                              num_constants, num_records, func_records, constants, call_sites)
         stack_maps.append(stack_map)
-        offset += 16+(num_funcs*FUNC_RECORD_SIZE) + \
-            (num_constants*CONST_RECORD_SIZE)
-        for c in call_sites:
-            offset += c.size()
     return stack_maps
 
 
@@ -144,6 +142,8 @@ def parse_call_site_records(buffer, sm_offset, num_records, record_offset):
         reserved = struct.unpack('<H', buffer[offset+16: offset+18])[0]
         num_locations = struct.unpack('<H', buffer[offset+18: offset+20])[0]
         locations = parse_live_values(buffer, offset, num_locations, 20)
+        # if (offset+20+(num_locations*LIVE_VALUE_SIZE)) % 8 != 0:
+        #     offset += 4
         padding = struct.unpack(
             '<H', buffer[offset+20+(num_locations*LIVE_VALUE_SIZE): offset+22+(num_locations*LIVE_VALUE_SIZE)])[0]
         num_live_outs = struct.unpack(
@@ -159,8 +159,11 @@ def parse_call_site_records(buffer, sm_offset, num_records, record_offset):
         call_site = CallSiteRecord(id, func_idx, offs, reserved, num_locations, locations,
                                    padding, num_live_outs, live_outs, padding2, num_arch_live, arch_lives)
         offset += call_site.size()
+        if offset % 8 != 0:
+            offset += 4
         call_sites.append(call_site)
-    return call_sites
+    return (call_sites, offset)
+
 
 def parse_live_values(buffer, cs_offset, num_locations, location_offset):
     live_vals = []
@@ -176,7 +179,8 @@ def parse_live_values(buffer, cs_offset, num_locations, location_offset):
         regnum = struct.unpack('<H', buffer[offset+2: offset+4])[0]
         offset_or_const = struct.unpack('<i', buffer[offset+4: offset+8])[0]
         alloca_size = struct.unpack('<I', buffer[offset+8: offset+12])[0]
-        live_val = LiveValue(is_temp, is_dup, is_alloca, is_ptr, type, size, regnum, offset_or_const, alloca_size)
+        live_val = LiveValue(is_temp, is_dup, is_alloca, is_ptr,
+                             type, size, regnum, offset_or_const, alloca_size)
         live_vals.append(live_val)
     return live_vals
 
@@ -191,6 +195,7 @@ def parse_live_outs(buffer, cs_offset, num_live_outs, lo_offset):
         live_out = LiveOutRecord(regnum, reserved, size)
         live_outs.append(live_out)
     return live_outs
+
 
 def parse_arch_live(buffer, cs_offset, num_arch_live, al_offset):
     arch_lives = []
@@ -209,7 +214,9 @@ def parse_arch_live(buffer, cs_offset, num_arch_live, al_offset):
         inst_type = (val & 0b11110000) >> 4
         op_size = buffer[offset+9]
         op_regnum = struct.unpack('<H', buffer[offset+10: offset+12])[0]
-        op_offset_or_const = struct.unpack('<q', buffer[offset+12: offset+20])[0]
-        arch_live = ArchLiveValue(is_ptr, bit_pad, type, size, regnum, offs, op_type, is_gen, inst_type, op_size, op_regnum, op_offset_or_const)
+        op_offset_or_const = struct.unpack(
+            '<q', buffer[offset+12: offset+20])[0]
+        arch_live = ArchLiveValue(is_ptr, bit_pad, type, size, regnum, offs,
+                                  op_type, is_gen, inst_type, op_size, op_regnum, op_offset_or_const)
         arch_lives.append(arch_live)
     return arch_lives
