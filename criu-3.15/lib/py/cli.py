@@ -5,7 +5,9 @@ import json
 import struct
 
 import pycriu
-import utils
+from pycriu import utils
+from pycriu import elf_utils
+from pycriu import stack_map_utils
 
 
 def decode(opts):
@@ -311,11 +313,20 @@ def explore_rss(opts):
 
             print('%-24s%s' % (pstr, vstr))
 
+explorers = {
+    'ps': explore_ps,
+    'fds': explore_fds,
+    'mems': explore_mems,
+    'rss': explore_rss,
+}
+
+def explore(opts):
+    explorers[opts['what']](opts)
 
 def sunw(opts):
     ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
     proc_num = 1
-    output = utils.get_obj_file_symbols(opts['nm'], opts['dir'], opts['obj'])
+    output = utils.get_bin_file_symbols(opts['nm'], opts['dir'], opts['bin'])
     if output == '':
         print('Error parsing symbols from obj file.\n')
         return
@@ -364,18 +375,19 @@ def sunw(opts):
             adr = [a for a in addresses if a <= ip]
             print('\nip: 0x%lx (%s + %d)' % (ip, funcs[len(adr)-1], ip - adr[-1]))
 
+def sm_dump(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, '.llvm_pcn_stackmaps')
+    print(section.name)
+    stack_maps = stack_map_utils.parse_stack_maps(section)
+    print("test")
 
-explorers = {
-    'ps': explore_ps,
-    'fds': explore_fds,
-    'mems': explore_mems,
-    'rss': explore_rss,
+sm_utils = {
+    'dump': sm_dump
 }
 
-
-def explore(opts):
-    explorers[opts['what']](opts)
-
+def sm(opts):
+    sm_utils[opts['what']](opts)
 
 def main():
     desc = 'CRiu Image Tool'
@@ -430,9 +442,15 @@ def main():
     sunw_parser = subparsers.add_parser('sunw', help='unwind stack from image files')
     sunw_parser.add_argument('dir', help='directory where image files exist')
     sunw_parser.add_argument('nm', help='GNU util nm')
-    sunw_parser.add_argument('obj', help='object file name')
+    sunw_parser.add_argument('bin', help='binary file name')
     sunw_parser.set_defaults(func=sunw)
 
+    # Stack Map
+    sm_parser = subparsers.add_parser('sm', help='llvm stackmap utils')
+    sm_parser.add_argument('dir', help='directory where image files exist')
+    sm_parser.add_argument('what', choices=['dump'])
+    sm_parser.add_argument('bin', help='binary file name')
+    sm_parser.set_defaults(func=sm)
 
     # Show
     show_parser = subparsers.add_parser(

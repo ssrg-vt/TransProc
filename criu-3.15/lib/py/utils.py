@@ -2,8 +2,8 @@ import os
 import struct
 import sys
 
-def get_obj_file_symbols(nm, dir, obj):
-    stream = os.popen(nm + ' ' + dir + '/' + obj + " -n | grep 'T'")
+def get_bin_file_symbols(nm, dir, bin):
+    stream = os.popen(nm + ' ' + os.path.join(dir, bin) + " -n | grep 'T'")
     output = stream.read()
     stream.close()
     return output
