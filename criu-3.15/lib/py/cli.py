@@ -375,18 +375,76 @@ def sunw(opts):
             adr = [a for a in addresses if a <= ip]
             print('\nip: 0x%lx (%s + %d)' % (ip, funcs[len(adr)-1], ip - adr[-1]))
 
-def sm_dump(opts):
+def dump_stackmap_data(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
-    section = elf_utils.get_elf_section(elffile, '.llvm_pcn_stackmaps')
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.STACKMAP_SECTION)
     print("Reading section: " + section.name)
     stack_maps = stack_map_utils.parse_stack_maps(section)
     stack_map_utils.print_stack_map_data(stack_maps)
 
+def dump_sections(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    sections = elf_utils.get_elf_section(elffile)
+    for s in sections:
+        print(s.name)
+
+def dump_section_unwind_addr(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.UNWIND_ADDR_SECTION)
+    entries = elf_utils.get_num_entries(section)
+    if entries > 0:
+        unwind_addrs = stack_map_utils.parse_unwind_addrs(section, True)
+
+def dump_section_unwind_loc(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.UNWIND_SECTION)
+    entries = elf_utils.get_num_entries(section)
+    if entries > 0:
+        unwind_locs = stack_map_utils.parse_unwind_locs(section, True)
+
+
+def dump_section_cs_id(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.ID_SECTION)
+    entries = elf_utils.get_num_entries(section)
+    if entries > 0:
+        call_sites = stack_map_utils.parse_call_sites_by_id(section, True)
+
+
+def dump_section_cs_addr(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.ADDR_SECTION)
+    entries = elf_utils.get_num_entries(section)
+    if entries > 0:
+        call_sites = stack_map_utils.parse_call_sites_by_addr(section, True)
+
+def dump_section_live_vals(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.LIVE_VALUE_SECTION)
+    entries = elf_utils.get_num_entries(section)
+    if entries > 0:
+        live_vals = stack_map_utils.parse_live_values(section, entries, True)
+
+def dump_section_arch_live_vals(opts):
+    elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
+    section = elf_utils.get_elf_section(elffile, stack_map_utils.ARCH_LIVE_SECTION)
+    entries = elf_utils.get_num_entries(section)
+    if entries > 0:
+        arch_live_vals = stack_map_utils.parse_arch_live_values(section, entries, True)
+
+
 sm_utils = {
-    'dump': sm_dump
+    'dump_sm': dump_stackmap_data,
+    'dump_sections' : dump_sections,
+    'dump_sec_unw_addr' : dump_section_unwind_addr,
+    'dump_sec_unw_loc' : dump_section_unwind_loc,
+    'dump_sec_cs_id' : dump_section_cs_id,
+    'dump_sec_cs_addr' : dump_section_cs_addr,
+    'dump_sec_live_val' : dump_section_live_vals,
+    'dump_sec_arch_live' : dump_section_arch_live_vals
 }
 
-def sm(opts):
+def elf(opts):
     sm_utils[opts['what']](opts)
 
 def main():
@@ -446,11 +504,12 @@ def main():
     sunw_parser.set_defaults(func=sunw)
 
     # Stack Map
-    sm_parser = subparsers.add_parser('sm', help='llvm stackmap utils')
+    sm_parser = subparsers.add_parser('elf', help='elf utils')
     sm_parser.add_argument('dir', help='directory where image files exist')
-    sm_parser.add_argument('what', choices=['dump'])
+    sm_parser.add_argument('what', choices=['dump_sm', 'dump_sections', 'dump_sec_unw_addr', 'dump_sec_unw_loc', 'dump_sec_cs_id', 
+    'dump_sec_cs_addr', 'dump_sec_live_val', 'dump_sec_arch_live'])
     sm_parser.add_argument('bin', help='binary file name')
-    sm_parser.set_defaults(func=sm)
+    sm_parser.set_defaults(func=elf)
 
     # Show
     show_parser = subparsers.add_parser(
