@@ -42,7 +42,13 @@ XMM14 = 31
 XMM15 = 32
 
 class RegsetX8664:
-    def __init__(self, core):
+    def __init__(self, core = None):
+        if core:
+            self._init(core)
+        else:
+            self._init_none()        
+
+    def _init(self, core):
         assert core['mtype'] == 'X86_64', "The process image is not for x86_64"
         self.rip = core['thread_info']['gpregs']['ip']
         self.rax = core['thread_info']['gpregs']['ax']
@@ -76,7 +82,7 @@ class RegsetX8664:
         for i in range(32): # core image has 32 entries for st
             self.st.append(core['thread_info']['fpregs']['st_space'][i])
 
-    def __init__(self):
+    def _init_none(self):
         self.rip = 0
         self.rax = 0
         self.rdx = 0

@@ -73,7 +73,13 @@ V30 = 94
 V31 = 95
 
 class RegsetAarch64:
-    def __init__(self, core):
+    def __init__(self, core=None):
+        if core:
+            self._init(core)
+        else:
+            self._init_none()
+
+    def _init(self, core):
         assert core['mtype'] == 'AARCH64', "The process image is not for aarch64"
         self.sp = core['ti_aarch64']['gpregs']['sp']
         self.pc = core['ti_aarch64']['gpregs']['pc']
@@ -84,7 +90,7 @@ class RegsetAarch64:
         for i in range(64):
             self.v.append(core['ti_aarch64']['fpsimd']['vregs'][i])
 
-    def __init__(self):
+    def _init_none(self):
         self.sp = 0
         self.pc = 0
         self.x = [0] * 32

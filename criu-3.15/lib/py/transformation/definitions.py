@@ -8,12 +8,11 @@ AARCH64 = 1
 UINT64_MAX = 0b1111111111111111111111111111111111111111111111111111111111111111
 
 class StHandle:
-    def __init__(self, core, elffile):
-        if core['mtype'] == 'X86_64':
-            self.type = X86_64
+    def __init__(self, arch_type, elffile):
+        self.type = arch_type
+        if self.type == X86_64:
             self.regops = regops.x86
-        elif core['mtype'] == 'AARCH64':
-            self.type = AARCH64
+        elif self.type == AARCH64:
             self.regops = regops.aarch
         else:
             raise Exception("Architecture not supported")
@@ -48,14 +47,14 @@ class StHandle:
             elffile, stack_map_utils.LIVE_VALUE_SECTION)
         self.live_val_entries = elf_utils.get_num_entries(section)
         if self.live_val_entries > 0:
-            self.live_vals = stack_map_utils.parse_live_values(section)
+            self.live_vals = stack_map_utils.parse_live_values(section, self.live_val_entries)
 
         section = elf_utils.get_elf_section(
             elffile, stack_map_utils.ARCH_LIVE_SECTION)
         self.arch_live_entries = elf_utils.get_num_entries(section)
         if self.arch_live_entries > 0:
             self.arch_live_vals = stack_map_utils.parse_arch_live_values(
-                section)
+                section, self.arch_live_entries)
     
     def get_call_site_from_addr(self, address):
         #TODO implement binary search
@@ -69,15 +68,15 @@ class StHandle:
 
 
 class Activation:
-    def __init__(self, cs, cfo, regset, libc = False):
+    def __init__(self, cs, cfo, libc = False):
         self.call_site = cs
         self.cfo = cfo # canonical frame offset
-        self.regset = regset
+        self.regset = None
         self.isLibc = libc
 
 
 class RewriteContext:
-    def __init__(self, st_handle, stack_top_offset, stack_base_offset, regset, pages):
+    def __init__(self,st_handle, regset, stack_top_offset = 0, stack_base_offset = 0, pages = None):
         self.st_handle = st_handle
         self.stack_base_offset = stack_base_offset
         self.stack_top_offset = stack_top_offset
@@ -87,14 +86,3 @@ class RewriteContext:
         self.activations = []
         self.stack_pointers = []
         self.pages = pages
-    
-    def __init__(self, st_handle, regset):
-        self.st_handle = st_handle
-        self.stack_base_offset = 0
-        self.stack_top_offset = 0
-        self.stack_size = 0
-        self.regset = regset
-        self.act = 0
-        self.activations = []
-        self.stack_pointers = []
-        self.pages = None
