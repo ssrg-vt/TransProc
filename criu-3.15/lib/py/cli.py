@@ -8,6 +8,7 @@ import pycriu
 from pycriu import utils
 from pycriu import elf_utils
 from pycriu import stack_map_utils
+from .transformation import stack_transform
 
 
 def decode(opts):
@@ -447,6 +448,24 @@ sm_utils = {
 def elf(opts):
     sm_utils[opts['what']](opts)
 
+def transform_all(opts):
+    src_elffile = elf_utils.open_elf_file(opts['dir'], opts['src'])
+    dest_elffile = elf_utils.open_elf_file(opts['dir'], opts['dest'])
+    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
+    pid = get_task_id(ps, 'pid')
+    core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
+    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    pages = utils.dinf(opts, "pages-%d.img" % 1)
+    stack_transform.rewrite_stack(core, src_elffile, dest_elffile, pm, pages)    
+
+
+trnsfrm = {
+    'all' : transform_all
+}
+
+def transform(opts):
+    trnsfrm[opts['what']](opts)
+
 def main():
     desc = 'CRiu Image Tool'
     parser = argparse.ArgumentParser(
@@ -510,6 +529,14 @@ def main():
     'dump_sec_cs_addr', 'dump_sec_live_val', 'dump_sec_arch_live'])
     sm_parser.add_argument('bin', help='binary file name')
     sm_parser.set_defaults(func=elf)
+
+    # Transformations
+    t_parser = subparsers.add_parser('trans', help='transform image')
+    t_parser.add_argument('dir', help='directory where image files exist')
+    t_parser.add_argument('what', choices=['all'])
+    t_parser.add_argument('src', help='source binary file name')
+    t_parser.add_argument('dest', help='destination binary file name')
+    t_parser.set_defaults(func=transform)
 
     # Show
     show_parser = subparsers.add_parser(
