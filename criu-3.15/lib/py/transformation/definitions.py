@@ -85,4 +85,7 @@ class RewriteContext:
         self.act = 0
         self.activations = []
         self.stack_pointers = []
-        self.pages = pages
+        if not pages:
+            self.pages = bytearray()
+        else:
+            self.pages = pages

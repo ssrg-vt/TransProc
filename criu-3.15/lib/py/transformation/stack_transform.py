@@ -20,8 +20,9 @@ def rewrite_stack(core, elffile_src, elffile_dest, page_map, pages):
     else:
         src_regset = reg_aarch64.RegsetAarch64(core)
         dest_regset = reg_x86_64.RegsetX8664()
-    rewrite_context_init(page_map, pages, src_handle,
-                         src_regset, dest_handle, dest_regset)
+    (src_ctx, dest_ctx) = rewrite_context_init(page_map, pages, src_handle,
+                                               src_regset, dest_handle, dest_regset)
+    
 
 
 def get_stack_page_offset(page_map, sp):
@@ -70,6 +71,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
         (src_bp, src_pc) = pop_frame(src_rewrite_ctx, src_sp, src_bp)
         if first_frame(src_cs):
             break
+    dest_rewrite_ctx.stack_size = dest_stack_size
 
 
 def rewrite_context_init(page_map, pages, src_handle, src_regset, dest_handle, dest_regset):
@@ -84,4 +86,4 @@ def rewrite_context_init(page_map, pages, src_handle, src_regset, dest_handle, d
         src_handle, src_regset, stack_top_offset, stack_base_offset, pages)
     dest_rewrite_ctx = definitions.RewriteContext(dest_handle, dest_regset)
     unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx)
-    print("Test")
+    return (src_rewrite_ctx, dest_rewrite_ctx)
