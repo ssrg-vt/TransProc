@@ -5,6 +5,12 @@ from . import regops
 X86_64 = 0
 AARCH64 = 1
 
+SM_REGISTER = 0x1
+SM_DIRECT = 0x2
+SM_INDIRECT = 0x3
+SM_CONSTANT = 0x4
+SM_CONST_IDX = 0x5
+
 UINT64_MAX = 0b1111111111111111111111111111111111111111111111111111111111111111
 
 class StHandle:
@@ -74,6 +80,12 @@ class Activation:
         self.regset = None
         self.isLibc = libc
 
+class Fixup:
+    def __init__(self, src_addr, src_sp, act, dest_live_val):
+        self.src_addr = src_addr
+        self.src_sp = src_sp
+        self.act = act
+        self.dest_live_val = dest_live_val
 
 class RewriteContext:
     def __init__(self,st_handle, regset, stack_top_offset = 0, stack_base_offset = 0, pages = None):
@@ -85,7 +97,4 @@ class RewriteContext:
         self.act = 0
         self.activations = []
         self.stack_pointers = []
-        if not pages:
-            self.pages = bytearray()
-        else:
-            self.pages = pages
+        self.pages = pages
