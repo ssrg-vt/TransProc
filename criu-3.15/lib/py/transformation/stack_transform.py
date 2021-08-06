@@ -28,6 +28,8 @@ def rewrite_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn, 
         dest_ctx.act = i
         # TODO Handle return address
         rewrite_frame(src_ctx, dest_ctx)
+    dest_ctx.pages.close()
+    print("test")
 
 
 def rewrite_frame(src_ctx, dest_ctx):
@@ -50,6 +52,10 @@ def rewrite_frame(src_ctx, dest_ctx):
             i += 1
         i += 1
         j += 1
+    i = 0
+    while(i < dest_cs.arch_num_live):
+        
+        i += 1
 
 
 def rewrite_val(src_ctx, src_val, dest_ctx, dest_val):
@@ -83,33 +89,63 @@ def rewrite_val(src_ctx, src_val, dest_ctx, dest_val):
         # else:
             # Warn "Pointer to stack points to called functions\n"
     else:
-        put_val(src_ctx, src_val, dest_ctx, dest_val)
+        raw_val = get_val(src_ctx, src_val)
+        put_val(dest_ctx, dest_val, raw_val)
     return need_local_fix
 
 
-def put_val(src_ctx, src_val, dest_ctx, dest_val):
-    raw_val = get_val(src_ctx, src_val)
+def put_val(dest_ctx, dest_val, raw_val):
+    dest_act = dest_ctx.activations[dest_ctx.act]
     regops = dest_ctx.st_handle.regops
     if dest_val.type == definitions.SM_REGISTER:
-        regops['set_reg'](dest_val.regnum, raw_val, dest_ctx.regset)
+        regops['set_reg'](dest_val.regnum, raw_val, dest_act.regset)
     elif dest_val.type == definitions.SM_DIRECT or dest_val.type == definitions.SM_INDIRECT:
-        st_addr = regops['reg_val'](dest_val.regnum, dest_ctx.regset) + dest_val.offset_or_const
-        sp = regops['sp'](dest_ctx.regset)
+        st_addr = regops['reg_val'](dest_val.regnum, dest_act.regset) + dest_val.offset_or_const
+        sp = regops['sp'](dest_act.regset)
         val_offset = (st_addr - sp) + dest_ctx.stack_top_offset
         dest_ctx.pages.seek(val_offset)
-        dest_ctx.pages.write(raw_val)
+        if dest_val.is_alloca:
+            if dest_val.alloca_size == 1:
+                write_val = struct.pack("B", raw_val)
+            elif dest_val.alloca_size == 2:
+                write_val = struct.pack("H", raw_val)
+            elif dest_val.alloca_size == 4:
+                write_val = struct.pack("I", raw_val)
+            elif dest_val.alloca_size == 8:
+                write_val = struct.pack("Q", raw_val)
+            #TODO: support 16 bytes alloca
+            else:
+                raise Exception("Alloca size not supported")
+        else:
+            write_val = struct.pack("Q", raw_val)
+                
+        dest_ctx.pages.write(write_val)
 
 
 def get_val(ctx, val):
+    act = ctx.activations[ctx.act]
     regops = ctx.st_handle.regops
-    sp = regops['sp'](ctx.regset)
+    sp = regops['sp'](act.regset)
     if val.type == definitions.SM_REGISTER:
-        return regops['reg_val'](val.regnum, ctx.regset)
+        return regops['reg_val'](val.regnum, act.regset)
     elif val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT:
-        st_addr = regops['reg_val'](val.regnum, ctx.regset) + val.offset_or_const
+        st_addr = regops['reg_val'](val.regnum, act.regset) + val.offset_or_const
         val_offset = (st_addr - sp) + ctx.stack_top_offset
         ctx.pages.seek(val_offset)
-        val = struct.unpack('<Q', ctx.pages.read(8))[0]
+        if val.is_alloca:
+            if val.alloca_size == 1:
+                val = struct.unpack('<B', ctx.pages.read(1))[0]
+            elif val.alloca_size == 2:
+                val = struct.unpack('<H', ctx.pages.read(2))[0]
+            elif val.alloca_size == 4:
+                val = struct.unpack('<I', ctx.pages.read(4))[0]
+            elif val.alloca_size == 8:
+                val = struct.unpack('<Q', ctx.pages.read(8))[0]
+                #TODO: alloca of 16
+            else:
+                raise Exception("Alloca size not supported")
+        else:
+            val = struct.unpack('<Q', ctx.pages.read(8))[0]
         return val
     elif val.type == definitions.SM_CONSTANT or val.type == definitions.SM_CONST_IDX:
         raise Exception("Cannot get val for constant/constant loc")
@@ -178,13 +214,26 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     src_bp = src_handle.regops['bp'](src_rewrite_ctx.regset)
     dest_handle.regops['set_sp'](src_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](src_bp, dest_rewrite_ctx.regset)
+    dest_sp = src_sp
+    dest_bp = src_bp
     while True:
+        if src_handle.type == definitions.X86_64:
+            src_act_regset = reg_x86_64.RegsetX8664()
+            dest_act_regset = reg_aarch64.RegsetAarch64()
+        else:
+            src_act_regset = reg_aarch64.RegsetAarch64
+            dest_act_regset = reg_x86_64.RegsetX8664()
         src_cs = src_handle.get_call_site_from_addr(src_pc)
         dest_cs = dest_handle.get_call_site_from_id(src_cs.id)
-        src_act = definitions.Activation(src_cs, src_cs.frame_size)
-        dest_act = definitions.Activation(dest_cs, dest_cs.frame_size)
+        src_handle.regops['set_sp'](src_sp, src_act_regset)
+        src_handle.regops['set_bp'](src_bp, src_act_regset)
+        dest_handle.regops['set_sp'](dest_sp, dest_act_regset)
+        dest_handle.regops['set_bp'](dest_bp, dest_act_regset)
+        src_act = definitions.Activation(src_cs, src_cs.frame_size, src_act_regset)
+        dest_act = definitions.Activation(dest_cs, dest_cs.frame_size, dest_act_regset)
         src_rewrite_ctx.activations.append(src_act)
         dest_rewrite_ctx.activations.append(dest_act)
+        dest_bp += dest_cs.frame_size
         if len(dest_rewrite_ctx.activations) == 1:
             dest_handle.regops['set_pc'](dest_cs.addr, dest_rewrite_ctx.regset)
         dest_stack_size += dest_cs.frame_size
