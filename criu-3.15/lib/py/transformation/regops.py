@@ -15,7 +15,7 @@ def _x86_set_sp(sp, regset):
     regset.rsp = sp
 
 def _x86_set_bp(bp, regset):
-    regset.rsp = bp
+    regset.rbp = bp
 
 def _x86_set_pc(pc, regset):
     regset.rip = pc

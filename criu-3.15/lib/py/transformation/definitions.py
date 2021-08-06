@@ -74,10 +74,10 @@ class StHandle:
 
 
 class Activation:
-    def __init__(self, cs, cfo, libc = False):
+    def __init__(self, cs, cfo, regset, libc = False):
         self.call_site = cs
         self.cfo = cfo # canonical frame offset
-        self.regset = None
+        self.regset = regset
         self.isLibc = libc
 
 class Fixup:
