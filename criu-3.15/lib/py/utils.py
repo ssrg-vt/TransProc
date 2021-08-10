@@ -18,8 +18,8 @@ def print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr):
     pages.seek(((pages_to_skip) << 12) + (bp - st_vaddr))
     bp = struct.unpack('<Q', pages.read(8))[0]
     ip = struct.unpack('<Q', pages.read(8))[0]
-    print('(RBP + 0x8) 0x%lx (0x%ld)' % (ip, ip))
-    print('(RBP + 0x0) 0x%lx (0x%ld)' % (bp, bp))
+    print('(RBP + 0x8) 0x%lx (%ld)' % (ip, ip))
+    print('(RBP + 0x0) 0x%lx (%ld)' % (bp, bp))
     pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
     ba = []
     diff = temp - sp

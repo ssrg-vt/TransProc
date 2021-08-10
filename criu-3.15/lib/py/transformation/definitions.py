@@ -11,6 +11,18 @@ SM_INDIRECT = 0x3
 SM_CONSTANT = 0x4
 SM_CONST_IDX = 0x5
 
+Set = 0
+Add = 1
+Sub = 2
+Mult = 3
+Divide = 4
+LShift = 5
+RShiftLog = 6
+RShiftArith = 7
+Mask = 8
+Load32 = 9
+Load64 = 10
+
 UINT64_MAX = 0b1111111111111111111111111111111111111111111111111111111111111111
 
 class StHandle:
