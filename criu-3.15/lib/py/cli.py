@@ -467,6 +467,35 @@ trnsfrm = {
 def transform(opts):
     trnsfrm[opts['what']](opts)
 
+def stack_copy(opts):
+    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
+    pid = get_task_id(ps, 'pid')
+    core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
+    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    pages = utils.dinf(opts, "pages-%d.img" % 1, 'r+b')
+    if core['mtype'] == 'X86_64':
+        sp = core['thread_info']['gpregs']['sp']
+    elif core['mtype'] == 'AARCH64':
+        sp = core['ti_aarch64']['gpregs']['sp']
+    else:
+        raise Exception("Architecture not yet supported")
+    (pages_to_skip, st_vaddr, end_vaddr) = stack_transform.get_stack_page_offset(pm, sp)
+    stack_top_offset = (pages_to_skip << 12) + (sp - st_vaddr)
+    pages.seek(stack_top_offset)
+    stack = open(opts['src_file'], 'rb')
+    data = stack.read(8)
+    while data:
+        pages.write(data)
+        data = stack.read(8)
+
+
+cpy = {
+    'stack' : stack_copy
+}
+
+def copy(opts):
+    cpy[opts['what']](opts)
+
 def main():
     desc = 'CRiu Image Tool'
     parser = argparse.ArgumentParser(
@@ -539,6 +568,12 @@ def main():
     t_parser.add_argument('dest', help='destination binary file name')
     t_parser.add_argument('st_fn', help='file name for destination stack')
     t_parser.set_defaults(func=transform)
+
+    c_parser = subparsers.add_parser('copy', help='copy images')
+    c_parser.add_argument('dir', help='destination directory')
+    c_parser.add_argument('what', choices=['stack'])
+    c_parser.add_argument('src_file', help='Stack file whole path to copy from')
+    c_parser.set_defaults(func=copy)
 
     # Show
     show_parser = subparsers.add_parser(
