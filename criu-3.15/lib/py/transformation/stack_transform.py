@@ -1,5 +1,6 @@
 from io import RawIOBase
 import struct
+import os
 
 from . import definitions
 from . import reg_aarch64
@@ -32,7 +33,7 @@ def rewrite_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn, 
         # TODO Handle return address
         rewrite_frame(src_ctx, dest_ctx)
     dest_ctx.pages.close()
-    print("Transformed stack in file: %s" % dest_st_fn)
+    print("Transformed stack in file: %s" % os.path.join(opts['dir'], dest_st_fn))
 
 def rewrite_frame(src_ctx, dest_ctx):
     src_cs = src_ctx.activations[src_ctx.act].call_site
@@ -300,7 +301,7 @@ def points_to_stack(ctx, live_val):
     regops = ctx.st_handle.regops
     sp = regops['sp'](ctx.regset)
     act = ctx.activations[ctx.act]
-    if live_val.is_ptr or (live_val.is_alloca and live_val.alloca_size == 8):
+    if live_val.is_ptr:
         if live_val.type == definitions.SM_REGISTER:
             stack_addr = regops['reg_val'](live_val.regnum, ctx.regset)
         elif live_val.type == definitions.SM_DIRECT or live_val.type == definitions.SM_INDIRECT:
