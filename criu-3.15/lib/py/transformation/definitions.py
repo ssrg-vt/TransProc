@@ -1,6 +1,7 @@
 from pycriu import stack_map_utils
 from pycriu import elf_utils
 from . import regops
+from . import properties
 
 X86_64 = 0
 AARCH64 = 1
@@ -30,8 +31,10 @@ class StHandle:
         self.type = arch_type
         if self.type == X86_64:
             self.regops = regops.x86
+            self.properties = properties.x86
         elif self.type == AARCH64:
             self.regops = regops.aarch
+            self.properties = properties.aarch
         else:
             raise Exception("Architecture not supported")
 
