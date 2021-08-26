@@ -8,7 +8,7 @@ from . import reg_x86_64
 from pycriu import utils
 
 
-def rewrite_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn, opts):
+def transform_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn, opts):
     if core['mtype'] == 'AARCH64':
         src_handle = definitions.StHandle(definitions.AARCH64, elffile_src)
         dest_handle = definitions.StHandle(definitions.X86_64, elffile_dest)
@@ -34,6 +34,8 @@ def rewrite_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn, 
         rewrite_frame(src_ctx, dest_ctx)
     dest_ctx.pages.close()
     print("Transformed stack in file: %s" % os.path.join(opts['dir'], dest_st_fn))
+    return (src_ctx, dest_ctx)
+
 
 def rewrite_frame(src_ctx, dest_ctx):
     src_cs = src_ctx.activations[src_ctx.act].call_site
@@ -361,9 +363,8 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     src_pc = src_handle.regops['pc'](src_rewrite_ctx.regset)
     src_sp = src_handle.regops['sp'](src_rewrite_ctx.regset)
     src_bp = src_handle.regops['bp'](src_rewrite_ctx.regset)
-    d = src_bp - src_sp
-    dest_sp = 0xfffffffff8b0
-    dest_bp = dest_sp + d
+    dest_sp = src_sp
+    dest_bp = src_bp
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
     while True:

@@ -449,15 +449,18 @@ def elf(opts):
     sm_utils[opts['what']](opts)
 
 def transform_all(opts):
-    st_fn = opts['st_fn']
+    st_fn = "dest_stack"
+    dest_core_fn = "dest_core"
     src_elffile = elf_utils.open_elf_file(opts['dir'], opts['src'])
     dest_elffile = elf_utils.open_elf_file(opts['dir'], opts['dest'])
     ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
     pid = get_task_id(ps, 'pid')
-    core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
+    core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))
     pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
     pages = utils.dinf(opts, "pages-%d.img" % 1)
-    stack_transform.rewrite_stack(core, src_elffile, dest_elffile, pm, pages, st_fn, opts)
+    (src_ctx, dest_ctx) = \
+        stack_transform.transform_stack(core['entries'][0], src_elffile, dest_elffile, pm, pages, st_fn, opts)
+
 
 
 trnsfrm = {
@@ -566,7 +569,6 @@ def main():
     t_parser.add_argument('what', choices=['all'])
     t_parser.add_argument('src', help='source binary file name')
     t_parser.add_argument('dest', help='destination binary file name')
-    t_parser.add_argument('st_fn', help='file name for destination stack')
     t_parser.set_defaults(func=transform)
 
     c_parser = subparsers.add_parser('copy', help='copy images')
