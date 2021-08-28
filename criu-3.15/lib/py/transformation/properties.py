@@ -1,7 +1,7 @@
 from . import reg_x86_64
 from . import reg_aarch64
 
-_x86_64_ra_offset = -0x8
+_x86_64_ra_offset = 0x8
 _x86_64_cfa_offset_funcentry = 0x8
 _x86_64_stack_alignment = 0x10
 
@@ -46,7 +46,7 @@ x86 = {
 }
 
 _aarch64_stack_alignment = 0x10
-_aarch64_ra_offset = -0x8
+_aarch64_ra_offset = 0x8
 _aarch64_cfa_offset_funcentry = 0x0
 
 _callee_saved_aarch64 = [

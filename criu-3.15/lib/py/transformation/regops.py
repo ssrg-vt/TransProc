@@ -160,6 +160,9 @@ def _x86_set_reg_val(regnum, val, regset):
     else:
         raise Exception("Register not yet supported!")
 
+def _x86_bp_regnum():
+    return reg_x86_64.RBP
+
 def _aarch_sp(regset):
     return regset.sp
 
@@ -198,6 +201,9 @@ def _aarch64_set_reg_val(regnum, val, regset):
     else:
         raise Exception("Register not yet supported")
 
+def _aarch64_bp_regnum():
+    return reg_aarch64.X29
+
 x86 = {
     'sp' : _x86_sp,
     'bp' : _x86_bp,
@@ -206,7 +212,8 @@ x86 = {
     'set_bp' : _x86_set_bp,
     'set_pc' : _x86_set_pc,
     'reg_val' : _x86_get_reg_val,
-    'set_reg' : _x86_set_reg_val
+    'set_reg' : _x86_set_reg_val,
+    'bp_regnum' : _x86_bp_regnum
 }
 
 aarch = {
@@ -217,5 +224,6 @@ aarch = {
     'set_bp' : _aarch_set_bp,
     'set_pc' : _aarch_set_pc,
     'reg_val' : _aarch64_get_reg_val,
-    'set_reg' : _aarch64_set_reg_val
+    'set_reg' : _aarch64_set_reg_val,
+    'bp_regnum' : _aarch64_bp_regnum
 }
