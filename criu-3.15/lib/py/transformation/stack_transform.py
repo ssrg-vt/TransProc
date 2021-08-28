@@ -26,14 +26,15 @@ def transform_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn
     (src_ctx, dest_ctx) = rewrite_context_init(page_map, pages, src_handle, src_regset,
                                                dest_handle, dest_regset, dest_st_fn, opts)
     assert len(src_ctx.activations) == len(dest_ctx.activations), \
-            "Activation count unequal for src and dest"
+        "Activation count unequal for src and dest"
     for i in range(len(dest_ctx.activations)):
         src_ctx.act = i
         dest_ctx.act = i
         # TODO Handle return address
         rewrite_frame(src_ctx, dest_ctx)
     dest_ctx.pages.close()
-    print("Transformed stack in file: %s" % os.path.join(opts['dir'], dest_st_fn))
+    print("Transformed stack in file: %s" %
+          os.path.join(opts['dir'], dest_st_fn))
     return (src_ctx, dest_ctx)
 
 
@@ -63,7 +64,8 @@ def rewrite_frame(src_ctx, dest_ctx):
         raw_val = get_val(
             dest_ctx, dest_ctx.st_handle.arch_live_vals[i+dest_cs.arch_live_offset], True)
         raw_val = get_arch_val(dest_ctx,
-                               dest_ctx.st_handle.arch_live_vals[i + dest_cs.arch_live_offset],
+                               dest_ctx.st_handle.arch_live_vals[i +
+                                                                 dest_cs.arch_live_offset],
                                raw_val)
         put_val(dest_ctx,
                 dest_ctx.st_handle.arch_live_vals[i+dest_cs.arch_live_offset],
@@ -71,6 +73,60 @@ def rewrite_frame(src_ctx, dest_ctx):
                 True)
         i += 1
     return needs_fixup
+
+
+def fixup_local_pointers(src_ctx, dest_ctx):
+    src_regops = src_ctx.st_handle.regops
+    src_act = src_ctx.activations[src_ctx.act]
+    dest_act = dest_ctx.activations[dest_ctx.act]
+    src_cs = src_ctx.activations[src_ctx.act].call_site
+    dest_cs = dest_ctx.activations[dest_ctx.act].call_site
+    src_offset = src_cs.live_offset
+    dest_offset = dest_cs.live_offset
+    src_sp = src_regops['sp'](src_act.regset)
+    src_bp = src_regops['bp'](src_act.regset)
+    for fixup_node in dest_ctx.stack_pointers:
+        if fixup_node.act != src_ctx.act:
+            continue
+        if fixup_node.src_addr > src_bp or fixup_node.src_addr <= src_bp - src_act.cfo:
+            #if not in current frame
+            continue
+        i = j = 0
+        while(j < dest_cs.num_live):
+            src_val = src_ctx.st_handle.live_vals[i+src_offset]
+            dest_val = dest_ctx.st_handle.live_vals[j+dest_offset]
+            assert(src_val.is_duplicate == 0, "Invalid duplicate location record")
+            assert(dest_val.is_duplicate == 0, "Invalid duplicate location record")
+            while(i+1+src_offset < src_ctx.st_handle.live_val_entries and
+              src_ctx.st_handle.live_vals[i+1+src_offset].is_duplicate):
+                i += 1
+            while(j+1+dest_offset < dest_ctx.st_handle.live_val_entries and
+              dest_ctx.st_handle.live_vals[j+1+dest_offset].is_duplicate):
+                j += 1
+            if(src_val.is_alloca == 0 or dest_val.is_alloca == 0):
+                continue
+            (raw_val, src_ptr_offset) = points_to_data(src_ctx, src_val, fixup_node.src_addr)
+            i += 1
+            j += 1
+
+
+def points_to_data(src_ctx, src_val, src_ptr):
+    assert(src_val.type == definitions.SM_DIRECT, 
+            "Invalid value types (must be allocas for pointed-to analysis)")
+    (raw_val, offset) = get_val(src_ctx, src_val, False, True)
+    regops = src_ctx.st_handle.regops
+    src_sp = regops['sp'](src_ctx.regset)
+    src_ptr_offset = src_ptr - src_sp + src_ctx.stack_top_offset
+    if offset <= src_ptr_offset and src_ptr_offset < (offset + src_val.alloca_size):
+        return (raw_val, src_ptr_offset - src_ctx.stack_top_offset)
+    else:
+        return (None, 0)
+    
+
+def put_val_data(ctx, live_val, act, data):
+    assert(live_val.type == definitions.SM_DIRECT, 
+            "Invalid value types (must be allocas for pointed-to analysis)")
+    
 
 
 # Adds the next frame pointer and return address to the stack.
@@ -83,15 +139,24 @@ def put_frame_ptr(ctx):
     sp = regops['sp'](act.regset)
     bp = regops['bp'](act.regset)
     offset = bp - sp
+    locs = ctx.st_handle.unwind_locs
+    unw_start = act.call_site.unwind_offset
+    unw_end = unw_start + act.call_site.num_unwind
+    index = -1
+    for i in range(unw_end-1, unw_start, -1):
+        if locs[i].reg == regops['bp_regnum']:
+            index = i
+            break
+    assert(index > unw_start, "No saved frame base pointer information!")
+    offset += locs[index].offset
     fp = bp + act_next.call_site.frame_size
     fp_bytes = struct.pack("Q", fp)
     ctx.pages.seek(offset)
     ctx.pages.write(fp_bytes)
-    ctx.pages.seek(offset + 8)
+    ctx.pages.seek(offset + ctx.properties['ra_offset'])
     addr = act_next.call_site.addr
     addr_bytes = struct.pack("Q", addr)
     ctx.pages.write(addr_bytes)
-
 
 
 def get_arch_val(ctx, arch_live_val, raw_val):
@@ -262,12 +327,16 @@ def put_val(dest_ctx, dest_val, raw_val, arch=False):
         raise Exception("Value type %ld not supported" % dest_val.type)
 
 
-def get_val(ctx, val, arch=False):
+def get_val(ctx, val, arch=False, return_loc = False):
+    if return_loc:
+        assert(val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT, 
+                "Cannot return location on register and constants.")
     act = ctx.activations[ctx.act]
     regops = ctx.st_handle.regops
     sp = regops['sp'](act.regset)
     if val.type == definitions.SM_REGISTER:
-        return regops['reg_val'](val.regnum, ctx.regset) ## TODO: Determine whether ctx or act
+        # TODO: Determine whether ctx or act
+        return regops['reg_val'](val.regnum, ctx.regset)
     elif val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT:
         st_addr = regops['reg_val'](
             val.regnum, act.regset) + val.offset_or_const
@@ -287,11 +356,14 @@ def get_val(ctx, val, arch=False):
                     c = val.alloca_size//8
                     raw_val = []
                     for _ in range(c):
-                        raw_val.append(struct.unpack('<Q', ctx.pages.read(8))[0])
+                        raw_val.append(struct.unpack(
+                            '<Q', ctx.pages.read(8))[0])
             else:
                 raw_val = struct.unpack('<Q', ctx.pages.read(8))[0]
         else:
             raw_val = struct.unpack('<Q', ctx.pages.read(8))[0]
+        if return_loc:
+            return (raw_val, val_offset)
         return raw_val
     elif val.type == definitions.SM_CONSTANT or val.type == definitions.SM_CONST_IDX:
         raise Exception("Cannot get val for constant/constant loc")
@@ -321,7 +393,7 @@ def points_to_stack(ctx, live_val):
             raise Exception("invalid value type %d" % live_val.type)
 
         if (stack_addr - sp) < 0 or \
-            (stack_addr - sp + ctx.stack_top_offset) >= ctx.stack_base_offset:
+                (stack_addr - sp + ctx.stack_top_offset) >= ctx.stack_base_offset:
             stack_addr = None
         return stack_addr
     else:
@@ -390,7 +462,8 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
         dest_rewrite_ctx.activations.append(dest_act)
         if len(dest_rewrite_ctx.activations) == 1:
             dest_handle.regops['set_pc'](dest_cs.addr, dest_rewrite_ctx.regset)
-            dest_handle.regops['set_pc'](dest_cs.addr, dest_rewrite_ctx.activations[0].regset)
+            dest_handle.regops['set_pc'](
+                dest_cs.addr, dest_rewrite_ctx.activations[0].regset)
         dest_stack_size += dest_cs.frame_size
         (src_bp, src_pc) = pop_frame(src_rewrite_ctx, src_sp, src_bp)
         if first_frame(src_cs):
@@ -398,7 +471,6 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     dest_rewrite_ctx.stack_size = dest_stack_size
     dest_rewrite_ctx.stack_base_offset = dest_stack_size
     dest_rewrite_ctx.pages.write(b'\x00' * dest_stack_size)
-
 
 
 def rewrite_context_init(page_map, pages, src_handle, src_regset, dest_handle,
