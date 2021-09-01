@@ -84,7 +84,7 @@ class RegsetAarch64:
         self.sp = core['ti_aarch64']['gpregs']['sp']
         self.pc = core['ti_aarch64']['gpregs']['pc']
         self.x = []
-        for i in range(32):
+        for i in range(31):
             self.x.append(core['ti_aarch64']['gpregs']['regs'][i])
         self.v = []
         for i in range(64):
@@ -93,5 +93,5 @@ class RegsetAarch64:
     def _init_none(self):
         self.sp = 0
         self.pc = 0
-        self.x = [0] * 32
+        self.x = [0] * 31
         self.v = [0] * 64

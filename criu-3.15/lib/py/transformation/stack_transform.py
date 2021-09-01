@@ -72,18 +72,17 @@ def rewrite_frame(src_ctx, dest_ctx):
                 raw_val,
                 True)
         i += 1
-    return needs_fixup
+    if needs_fixup:
+        fixup_local_pointers(src_ctx, dest_ctx)
 
 
 def fixup_local_pointers(src_ctx, dest_ctx):
     src_regops = src_ctx.st_handle.regops
     src_act = src_ctx.activations[src_ctx.act]
-    dest_act = dest_ctx.activations[dest_ctx.act]
     src_cs = src_ctx.activations[src_ctx.act].call_site
     dest_cs = dest_ctx.activations[dest_ctx.act].call_site
     src_offset = src_cs.live_offset
     dest_offset = dest_cs.live_offset
-    src_sp = src_regops['sp'](src_act.regset)
     src_bp = src_regops['bp'](src_act.regset)
     for fixup_node in dest_ctx.stack_pointers:
         if fixup_node.act != src_ctx.act:
@@ -95,8 +94,8 @@ def fixup_local_pointers(src_ctx, dest_ctx):
         while(j < dest_cs.num_live):
             src_val = src_ctx.st_handle.live_vals[i+src_offset]
             dest_val = dest_ctx.st_handle.live_vals[j+dest_offset]
-            assert(src_val.is_duplicate == 0, "Invalid duplicate location record")
-            assert(dest_val.is_duplicate == 0, "Invalid duplicate location record")
+            assert src_val.is_duplicate == 0, "Invalid duplicate location record"
+            assert dest_val.is_duplicate == 0, "Invalid duplicate location record"
             while(i+1+src_offset < src_ctx.st_handle.live_val_entries and
               src_ctx.st_handle.live_vals[i+1+src_offset].is_duplicate):
                 i += 1
@@ -106,28 +105,37 @@ def fixup_local_pointers(src_ctx, dest_ctx):
             if(src_val.is_alloca == 0 or dest_val.is_alloca == 0):
                 continue
             (raw_val, src_ptr_offset) = points_to_data(src_ctx, src_val, fixup_node.src_addr)
+            if raw_val:
+                put_val_data(dest_ctx, dest_val, raw_val, fixup_node, src_ptr_offset)
             i += 1
             j += 1
 
 
 def points_to_data(src_ctx, src_val, src_ptr):
-    assert(src_val.type == definitions.SM_DIRECT, 
-            "Invalid value types (must be allocas for pointed-to analysis)")
-    (raw_val, offset) = get_val(src_ctx, src_val, False, True)
+    assert src_val.type == definitions.SM_DIRECT, \
+            "Invalid value types (must be allocas for pointed-to analysis)"
+    (raw_val, alloca_offset) = get_val(src_ctx, src_val, False, True)
     regops = src_ctx.st_handle.regops
     src_sp = regops['sp'](src_ctx.regset)
     src_ptr_offset = src_ptr - src_sp + src_ctx.stack_top_offset
-    if offset <= src_ptr_offset and src_ptr_offset < (offset + src_val.alloca_size):
-        return (raw_val, src_ptr_offset - src_ctx.stack_top_offset)
+    if alloca_offset <= src_ptr_offset and src_ptr_offset < (alloca_offset + src_val.alloca_size):
+        return (raw_val, src_ptr_offset - alloca_offset)
     else:
         return (None, 0)
     
 
-def put_val_data(ctx, live_val, act, data):
-    assert(live_val.type == definitions.SM_DIRECT, 
-            "Invalid value types (must be allocas for pointed-to analysis)")
-    
+def put_val_data(dest_ctx, live_val_alloca, raw_val_alloca, fixup_node, ptr_offset):
+    assert live_val_alloca.type == definitions.SM_DIRECT, \
+            "Invalid value types (must be allocas for pointed-to analysis)"
+    dest_alloca_offset = put_val(dest_ctx, live_val_alloca, raw_val_alloca, False, True) #Put alloca
+    put_ptr_to_alloca(dest_ctx, fixup_node.dest_live_val, dest_alloca_offset, ptr_offset)
 
+def put_ptr_to_alloca(dest_ctx, dest_val, dest_alloca_offset, ptr_offset):
+    regops = dest_ctx.st_handle.regops
+    act = dest_ctx.activations[dest_ctx.act]
+    sp = regops['sp'](act.regset)
+    raw_val = sp + dest_alloca_offset + ptr_offset
+    put_val(dest_ctx, dest_val, raw_val)
 
 # Adds the next frame pointer and return address to the stack.
 def put_frame_ptr(ctx):
@@ -144,16 +152,16 @@ def put_frame_ptr(ctx):
     unw_end = unw_start + act.call_site.num_unwind
     index = -1
     for i in range(unw_end-1, unw_start, -1):
-        if locs[i].reg == regops['bp_regnum']:
+        if locs[i].reg == regops['bp_regnum']():
             index = i
             break
-    assert(index > unw_start, "No saved frame base pointer information!")
+    assert index > unw_start, "No saved frame base pointer information!"
     offset += locs[index].offset
     fp = bp + act_next.call_site.frame_size
     fp_bytes = struct.pack("Q", fp)
     ctx.pages.seek(offset)
     ctx.pages.write(fp_bytes)
-    ctx.pages.seek(offset + ctx.properties['ra_offset'])
+    ctx.pages.seek(offset + ctx.st_handle.properties['ra_offset'])
     addr = act_next.call_site.addr
     addr_bytes = struct.pack("Q", addr)
     ctx.pages.write(addr_bytes)
@@ -278,10 +286,15 @@ def rewrite_val(src_ctx, src_val, dest_ctx, dest_val):
     else:
         raw_val = get_val(src_ctx, src_val)
         put_val(dest_ctx, dest_val, raw_val)
+    if src_val.is_alloca != 0 and src_val.is_temp == 0:
+        for fixup_node in dest_ctx.stack_pointers:
+            (raw_val, src_ptr_offset) = points_to_data(src_ctx, src_val, fixup_node.src_addr)
+            if raw_val:
+                put_val_data(dest_ctx, dest_val, raw_val, fixup_node, src_ptr_offset)
     return need_local_fix
 
 
-def put_val(dest_ctx, dest_val, raw_val, arch=False):
+def put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False):
     dest_act = dest_ctx.activations[dest_ctx.act]
     regops = dest_ctx.st_handle.regops
     if dest_val.type == definitions.SM_REGISTER:
@@ -310,6 +323,8 @@ def put_val(dest_ctx, dest_val, raw_val, arch=False):
                         write_val.append(struct.pack("Q", raw_val[i]))
             else:
                 write_val.append(struct.pack("Q", raw_val))
+                if return_loc:
+                    return val_offset
         else:
             if dest_val.operand_size == 1:
                 write_val.append(struct.pack("B", raw_val))
@@ -329,8 +344,8 @@ def put_val(dest_ctx, dest_val, raw_val, arch=False):
 
 def get_val(ctx, val, arch=False, return_loc = False):
     if return_loc:
-        assert(val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT, 
-                "Cannot return location on register and constants.")
+        assert val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT, \
+                "Cannot return location on register and constants."
     act = ctx.activations[ctx.act]
     regops = ctx.st_handle.regops
     sp = regops['sp'](act.regset)
@@ -435,8 +450,8 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     src_pc = src_handle.regops['pc'](src_rewrite_ctx.regset)
     src_sp = src_handle.regops['sp'](src_rewrite_ctx.regset)
     src_bp = src_handle.regops['bp'](src_rewrite_ctx.regset)
-    dest_sp = src_sp
-    dest_bp = src_bp
+    dest_sp = 0xfffffffffa40
+    dest_bp = 0xfffffffffa60
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
     while True:

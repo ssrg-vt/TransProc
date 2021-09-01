@@ -9,6 +9,7 @@ from pycriu import utils
 from pycriu import elf_utils
 from pycriu import stack_map_utils
 from .transformation import stack_transform
+from pycriu.het import X8664Converter, Aarch64Converter
 
 
 def decode(opts):
@@ -100,7 +101,8 @@ def ftype_find_in_files(opts, ft, fid):
 
     if files_img is None:
         try:
-            files_img = pycriu.images.load(utils.dinf(opts, "files.img"))['entries']
+            files_img = pycriu.images.load(
+                utils.dinf(opts, "files.img"))['entries']
         except:
             files_img = []
 
@@ -195,7 +197,8 @@ def explore_fds(opts):
         for fd in fdi['entries']:
             print("\t%7d: %s" % (fd['fd'], get_file_str(opts, fd)))
 
-        fdi = pycriu.images.load(utils.dinf(opts, 'fs-%d.img' % pid))['entries'][0]
+        fdi = pycriu.images.load(utils.dinf(
+            opts, 'fs-%d.img' % pid))['entries'][0]
         print("\t%7s: %s" %
               ('cwd', get_file_str(opts, {
                   'type': 'REG',
@@ -228,7 +231,8 @@ def explore_mems(opts):
     vids = vma_id()
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        mmi = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+        mmi = pycriu.images.load(utils.dinf(
+            opts, 'mm-%d.img' % pid))['entries'][0]
 
         print("%d" % pid)
         print("\t%-36s    %s" % ('exe',
@@ -281,8 +285,9 @@ def explore_rss(opts):
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
         vmas = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' %
-                                       pid))['entries'][0]['vmas']
-        pms = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+                                             pid))['entries'][0]['vmas']
+        pms = pycriu.images.load(utils.dinf(
+            opts, 'pagemap-%d.img' % pid))['entries']
 
         print("%d" % pid)
         vmi = 0
@@ -314,6 +319,7 @@ def explore_rss(opts):
 
             print('%-24s%s' % (pstr, vstr))
 
+
 explorers = {
     'ps': explore_ps,
     'fds': explore_fds,
@@ -321,8 +327,10 @@ explorers = {
     'rss': explore_rss,
 }
 
+
 def explore(opts):
     explorers[opts['what']](opts)
+
 
 def sunw(opts):
     ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
@@ -347,7 +355,8 @@ def sunw(opts):
             sp = core['ti_aarch64']['gpregs']['sp']
             bp = core['ti_aarch64']['gpregs']['regs'][29]
             ip = core['ti_aarch64']['gpregs']['pc']
-        pms = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        pms = pycriu.images.load(utils.dinf(
+            opts, 'pagemap-%d.img' % pid))['entries']
         pages_to_skip = 0
         for pm in pms[1:]:
             nr_pages = pm['nr_pages']
@@ -366,22 +375,27 @@ def sunw(opts):
             for i in range(2):
                 val = struct.unpack('<Q', pages.read(8))[0]
                 print('(SP + 0x%x) 0x%lx (%ld)' % (8*i, val, val))
-        
+
         while True:
             adr = [a for a in addresses if a <= ip]
             if not bp or bp <= st_vaddr:
                 break
-            sp, bp, ip = utils.print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
+            sp, bp, ip = utils.print_stack(
+                sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
         if ip:
             adr = [a for a in addresses if a <= ip]
-            print('\nip: 0x%lx (%s + %d)' % (ip, funcs[len(adr)-1], ip - adr[-1]))
+            print('\nip: 0x%lx (%s + %d)' %
+                  (ip, funcs[len(adr)-1], ip - adr[-1]))
+
 
 def dump_stackmap_data(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
-    section = elf_utils.get_elf_section(elffile, stack_map_utils.STACKMAP_SECTION)
+    section = elf_utils.get_elf_section(
+        elffile, stack_map_utils.STACKMAP_SECTION)
     print("Reading section: " + section.name)
     stack_maps = stack_map_utils.parse_stack_maps(section)
     stack_map_utils.print_stack_map_data(stack_maps)
+
 
 def dump_sections(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
@@ -389,16 +403,20 @@ def dump_sections(opts):
     for s in sections:
         print(s.name)
 
+
 def dump_section_unwind_addr(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
-    section = elf_utils.get_elf_section(elffile, stack_map_utils.UNWIND_ADDR_SECTION)
+    section = elf_utils.get_elf_section(
+        elffile, stack_map_utils.UNWIND_ADDR_SECTION)
     entries = elf_utils.get_num_entries(section)
     if entries > 0:
         unwind_addrs = stack_map_utils.parse_unwind_addrs(section, True)
 
+
 def dump_section_unwind_loc(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
-    section = elf_utils.get_elf_section(elffile, stack_map_utils.UNWIND_SECTION)
+    section = elf_utils.get_elf_section(
+        elffile, stack_map_utils.UNWIND_SECTION)
     entries = elf_utils.get_num_entries(section)
     if entries > 0:
         unwind_locs = stack_map_utils.parse_unwind_locs(section, True)
@@ -419,34 +437,41 @@ def dump_section_cs_addr(opts):
     if entries > 0:
         call_sites = stack_map_utils.parse_call_sites_by_addr(section, True)
 
+
 def dump_section_live_vals(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
-    section = elf_utils.get_elf_section(elffile, stack_map_utils.LIVE_VALUE_SECTION)
+    section = elf_utils.get_elf_section(
+        elffile, stack_map_utils.LIVE_VALUE_SECTION)
     entries = elf_utils.get_num_entries(section)
     if entries > 0:
         live_vals = stack_map_utils.parse_live_values(section, entries, True)
 
+
 def dump_section_arch_live_vals(opts):
     elffile = elf_utils.open_elf_file(opts['dir'], opts['bin'])
-    section = elf_utils.get_elf_section(elffile, stack_map_utils.ARCH_LIVE_SECTION)
+    section = elf_utils.get_elf_section(
+        elffile, stack_map_utils.ARCH_LIVE_SECTION)
     entries = elf_utils.get_num_entries(section)
     if entries > 0:
-        arch_live_vals = stack_map_utils.parse_arch_live_values(section, entries, True)
+        arch_live_vals = stack_map_utils.parse_arch_live_values(
+            section, entries, True)
 
 
 sm_utils = {
     'dump_sm': dump_stackmap_data,
-    'dump_sections' : dump_sections,
-    'dump_sec_unw_addr' : dump_section_unwind_addr,
-    'dump_sec_unw_loc' : dump_section_unwind_loc,
-    'dump_sec_cs_id' : dump_section_cs_id,
-    'dump_sec_cs_addr' : dump_section_cs_addr,
-    'dump_sec_live_val' : dump_section_live_vals,
-    'dump_sec_arch_live' : dump_section_arch_live_vals
+    'dump_sections': dump_sections,
+    'dump_sec_unw_addr': dump_section_unwind_addr,
+    'dump_sec_unw_loc': dump_section_unwind_loc,
+    'dump_sec_cs_id': dump_section_cs_id,
+    'dump_sec_cs_addr': dump_section_cs_addr,
+    'dump_sec_live_val': dump_section_live_vals,
+    'dump_sec_arch_live': dump_section_arch_live_vals
 }
+
 
 def elf(opts):
     sm_utils[opts['what']](opts)
+
 
 def transform_all(opts):
     st_fn = "dest_stack"
@@ -456,25 +481,30 @@ def transform_all(opts):
     ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
     pid = get_task_id(ps, 'pid')
     core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))
-    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    pm = pycriu.images.load(utils.dinf(
+        opts, 'pagemap-%d.img' % pid))['entries']
     pages = utils.dinf(opts, "pages-%d.img" % 1)
     (src_ctx, dest_ctx) = \
-        stack_transform.transform_stack(core['entries'][0], src_elffile, dest_elffile, pm, pages, st_fn, opts)
-
+        stack_transform.transform_stack(
+            core['entries'][0], src_elffile, dest_elffile, pm, pages, st_fn, opts)
 
 
 trnsfrm = {
-    'all' : transform_all
+    'all': transform_all
 }
+
 
 def transform(opts):
     trnsfrm[opts['what']](opts)
 
+
 def stack_copy(opts):
     ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
     pid = get_task_id(ps, 'pid')
-    core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
-    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    core = pycriu.images.load(utils.dinf(
+        opts, 'core-%d.img' % pid))['entries'][0]
+    pm = pycriu.images.load(utils.dinf(
+        opts, 'pagemap-%d.img' % pid))['entries']
     pages = utils.dinf(opts, "pages-%d.img" % 1, 'r+b')
     if core['mtype'] == 'X86_64':
         sp = core['thread_info']['gpregs']['sp']
@@ -493,11 +523,32 @@ def stack_copy(opts):
 
 
 cpy = {
-    'stack' : stack_copy
+    'stack': stack_copy
 }
+
 
 def copy(opts):
     cpy[opts['what']](opts)
+
+
+def get_default_arg(opts, arg, default=""):
+    if opts[arg]:
+        return opts[arg]
+    return default
+
+
+def recode(opts):
+    arch = get_default_arg(opts, "target", "aarch64")
+    directory = get_default_arg(opts, 'directory', ".")
+    outdir = get_default_arg(opts, 'out', "new_image."+str(arch))
+    path_append = get_default_arg(opts, 'append', "")
+    root_dir = get_default_arg(opts, 'root', "")
+    if arch == "aarch64":
+        converter = Aarch64Converter()
+    elif arch == "x86_64" or arch == "x86-64":
+        converter = X8664Converter()
+    converter.recode(arch, directory, outdir, path_append, root_dir)
+
 
 def main():
     desc = 'CRiu Image Tool'
@@ -549,7 +600,8 @@ def main():
     x_parser.set_defaults(func=explore)
 
     # Stack Unwind
-    sunw_parser = subparsers.add_parser('sunw', help='unwind stack from image files')
+    sunw_parser = subparsers.add_parser(
+        'sunw', help='unwind stack from image files')
     sunw_parser.add_argument('dir', help='directory where image files exist')
     sunw_parser.add_argument('nm', help='GNU util nm')
     sunw_parser.add_argument('bin', help='binary file name')
@@ -558,8 +610,8 @@ def main():
     # Stack Map
     sm_parser = subparsers.add_parser('elf', help='elf utils')
     sm_parser.add_argument('dir', help='directory where image files exist')
-    sm_parser.add_argument('what', choices=['dump_sm', 'dump_sections', 'dump_sec_unw_addr', 'dump_sec_unw_loc', 'dump_sec_cs_id', 
-    'dump_sec_cs_addr', 'dump_sec_live_val', 'dump_sec_arch_live'])
+    sm_parser.add_argument('what', choices=['dump_sm', 'dump_sections', 'dump_sec_unw_addr', 'dump_sec_unw_loc', 'dump_sec_cs_id',
+                                            'dump_sec_cs_addr', 'dump_sec_live_val', 'dump_sec_arch_live'])
     sm_parser.add_argument('bin', help='binary file name')
     sm_parser.set_defaults(func=elf)
 
@@ -574,7 +626,8 @@ def main():
     c_parser = subparsers.add_parser('copy', help='copy images')
     c_parser.add_argument('dir', help='destination directory')
     c_parser.add_argument('what', choices=['stack'])
-    c_parser.add_argument('src_file', help='Stack file whole path to copy from')
+    c_parser.add_argument(
+        'src_file', help='Stack file whole path to copy from')
     c_parser.set_defaults(func=copy)
 
     # Show
@@ -585,6 +638,19 @@ def main():
                              help='do not show entry payload (if exists)',
                              action='store_true')
     show_parser.set_defaults(func=decode, pretty=True, out=None)
+
+    # recode
+    recode_parser = subparsers.add_parser('recode',
+        help='convert criu images from architecture A to Architecture B')
+    recode_parser.add_argument('-d', '--directory',
+        help='directory containing the images (local by default)')
+    recode_parser.add_argument('-t', '--target',
+        help='target architecture (default: aarch64)')
+    recode_parser.add_argument('-a', '--append',
+        help='append path to file names (default: "") ')
+    recode_parser.add_argument('-o', '--out', help='path to output dir')
+    recode_parser.add_argument('-r', '--root', help='root dir (default "")')
+    recode_parser.set_defaults(func=recode, nopl=False)
 
     opts = vars(parser.parse_args())
 
