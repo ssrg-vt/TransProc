@@ -1,6 +1,7 @@
 
 # Original version by Mohmmed Karoi Lamine, Virginia Tech 2019
-# Current version by Antonio Barbalace and Tong Xing, Stevens 2019
+# Old version by Antonio Barbalace and Tong Xing, Stevens 2019
+# Current version by Abhishek Bapat, Virginia Tech 2021
 
 import os
 import json
