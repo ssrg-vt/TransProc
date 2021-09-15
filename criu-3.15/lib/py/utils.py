@@ -47,9 +47,9 @@ def outf(opts):
         return sys.stdout
 
 
-def dinf(opts, name, choice = 'rb'):
-    return open(os.path.join(opts['dir'], name), choice)
+def dinf(opts, name, choice = 'rb', dir = 'dir'):
+    return open(os.path.join(opts[dir], name), choice)
 
 
-def doutf(opts, name, choice = 'wb'):
-    return open(os.path.join(opts['dir'], name), choice)
+def doutf(opts, name, choice = 'wb', dir = 'dir'):
+    return open(os.path.join(opts[dir], name), choice)

@@ -33,6 +33,7 @@ def transform_stack(core, elffile_src, elffile_dest, page_map, pages, dest_st_fn
         # TODO Handle return address
         rewrite_frame(src_ctx, dest_ctx)
     dest_ctx.pages.close()
+    dest_ctx.regset = dest_ctx.activations[0].regset
     print("Transformed stack in file: %s" %
           os.path.join(opts['dir'], dest_st_fn))
     return (src_ctx, dest_ctx)
@@ -450,8 +451,8 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     src_pc = src_handle.regops['pc'](src_rewrite_ctx.regset)
     src_sp = src_handle.regops['sp'](src_rewrite_ctx.regset)
     src_bp = src_handle.regops['bp'](src_rewrite_ctx.regset)
-    dest_sp = 0xfffffffffa40
-    dest_bp = 0xfffffffffa60
+    dest_sp = src_sp
+    dest_bp = src_bp
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
     while True:

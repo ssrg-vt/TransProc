@@ -110,3 +110,35 @@ class RegsetX8664:
         self.mmx = [0] * 8 #TODO Read from file
         self.xmm = [0] * 62
         self.st = [0] * 32
+    
+    def copy_out(self, core):
+        assert core['mtype'] == 'X86_64', "The process image is not for x86_64"
+        core['thread_info']['gpregs']['ip'] = self.rip
+        core['thread_info']['gpregs']['ax'] = self.rax
+        core['thread_info']['gpregs']['dx'] = self.rdx
+        core['thread_info']['gpregs']['cx'] = self.rcx
+        core['thread_info']['gpregs']['bx'] = self.rbx
+        core['thread_info']['gpregs']['si'] = self.rsi
+        core['thread_info']['gpregs']['di'] = self.rdi
+        core['thread_info']['gpregs']['bp'] = self.rbp
+        core['thread_info']['gpregs']['sp'] = self.rsp
+        core['thread_info']['gpregs']['r8'] = self.r8
+        core['thread_info']['gpregs']['r9'] = self.r9
+        core['thread_info']['gpregs']['r10'] = self.r10
+        core['thread_info']['gpregs']['r11'] = self.r11
+        core['thread_info']['gpregs']['r12'] = self.r12
+        core['thread_info']['gpregs']['r13'] = self.r13
+        core['thread_info']['gpregs']['r14'] = self.r14
+        core['thread_info']['gpregs']['r15'] = self.r15
+        core['thread_info']['gpregs']['cs'] = self.cs
+        core['thread_info']['gpregs']['ss'] = self.ss
+        core['thread_info']['gpregs']['ds'] = self.ds
+        core['thread_info']['gpregs']['es'] = self.es
+        core['thread_info']['gpregs']['fs'] = self.fs
+        core['thread_info']['gpregs']['gs'] = self.gs
+        core['thread_info']['gpregs']['flags'] = self.rflags
+        # self.mmx = [0] * 8 #TODO Read from file
+        for i in range(62): # core image has 62 entries for xmm
+            core['thread_info']['fpregs']['xmm_space'][i] = self.xmm[i]
+        for i in range(32): # core image has 32 entries for st
+            core['thread_info']['fpregs']['st_space'][i] = self.st
