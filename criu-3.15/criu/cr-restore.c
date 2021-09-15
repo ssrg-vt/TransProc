@@ -1536,7 +1536,7 @@ err_unlock:
 static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 {
 	int status, pid, exit;
-	uint64_t *addr;
+
 	while (1) {
 		pid = waitpid(-1, &status, WNOHANG);
 		if (pid <= 0)
@@ -1558,12 +1558,9 @@ static void sigchld_handler(int signal, siginfo_t *siginfo, void *data)
 
 	if (exit)
 		pr_err("%d exited, status=%d\n", pid, status);
-	else{
+	else
 		pr_err("%d killed by signal %d: %s\n",
 			pid, status, strsignal(status));
-		addr = (uint64_t *)&(siginfo->_sifields);
-		pr_err("Failed at address: %p", (void *)(*addr));
-	}
 
 	futex_abort_and_wake(&task_entries->nr_in_progress);
 }
