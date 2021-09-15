@@ -29,7 +29,8 @@ binary_symbols ={}
 long = int
 
 def het_log(*args):
-	pass #print(args)
+	#pass 
+	print(args)
 
 class Reg64(Structure):
 	_fields_ = [("x", c_ulonglong)]
@@ -855,7 +856,8 @@ class Aarch64Converter(Converter):
 			    "prot": "PROT_READ", 
 			    "flags": "MAP_PRIVATE | MAP_ANON", 
 			    "status": "VMA_AREA_REGULAR | VMA_ANON_PRIVATE | VMA_AREA_VVAR", 
-			    "fd": -1}
+			    "fd": -1
+			}
 		
 		###TODO where is pgmap= ?
 

@@ -9,6 +9,7 @@ from pycriu import utils
 from pycriu import elf_utils
 from pycriu import stack_map_utils
 from .transformation import stack_transform
+from .transformation import core_transform
 from pycriu.het import X8664Converter, Aarch64Converter
 
 
@@ -475,18 +476,25 @@ def elf(opts):
 
 def transform_all(opts):
     st_fn = "dest_stack"
-    dest_core_fn = "dest_core"
-    src_elffile = elf_utils.open_elf_file(opts['dir'], opts['src'])
-    dest_elffile = elf_utils.open_elf_file(opts['dir'], opts['dest'])
-    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
-    pid = get_task_id(ps, 'pid')
-    core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))
-    pm = pycriu.images.load(utils.dinf(
+    src_elffile = elf_utils.open_elf_file(opts['dir'], opts['src_bin'])
+    dest_elffile = elf_utils.open_elf_file(opts['dest_dir'], opts['dest_bin'])
+    src_ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
+    pid = get_task_id(src_ps, 'pid')
+    src_core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))
+    src_pm = pycriu.images.load(utils.dinf(
         opts, 'pagemap-%d.img' % pid))['entries']
-    pages = utils.dinf(opts, "pages-%d.img" % 1)
+    src_pages = utils.dinf(opts, "pages-%d.img" % 1)
     (src_ctx, dest_ctx) = \
         stack_transform.transform_stack(
-            core['entries'][0], src_elffile, dest_elffile, pm, pages, st_fn, opts)
+            src_core['entries'][0], src_elffile, dest_elffile, src_pm, src_pages, st_fn, opts)
+    dest_core_file = utils.dinf(opts, 'core-%d.img' % pid, 'rb', 'dest_dir')
+    dest_core = pycriu.images.load(dest_core_file)
+    dest_core_file.close()
+    dest_ctx.regset.copy_out(dest_core['entries'][0])
+    dest_core_file = utils.dinf(opts, 'core-%d.img' % pid, 'w+b', 'dest_dir')
+    pycriu.images.dump(dest_core, dest_core_file)
+    dest_core_file.close()
+
 
 
 trnsfrm = {
@@ -617,12 +625,14 @@ def main():
 
     # Transformations
     t_parser = subparsers.add_parser('trans', help='transform image')
-    t_parser.add_argument('dir', help='directory where image files exist')
+    t_parser.add_argument('dir', help='directory where source image files exist')
+    t_parser.add_argument('dest_dir', help='directory where destination image files exist')
     t_parser.add_argument('what', choices=['all'])
-    t_parser.add_argument('src', help='source binary file name')
-    t_parser.add_argument('dest', help='destination binary file name')
+    t_parser.add_argument('src_bin', help='source binary file name')
+    t_parser.add_argument('dest_bin', help='destination binary file name')
     t_parser.set_defaults(func=transform)
 
+    # Stack Copy
     c_parser = subparsers.add_parser('copy', help='copy images')
     c_parser.add_argument('dir', help='destination directory')
     c_parser.add_argument('what', choices=['stack'])

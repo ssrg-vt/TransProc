@@ -95,3 +95,12 @@ class RegsetAarch64:
         self.pc = 0
         self.x = [0] * 31
         self.v = [0] * 64
+    
+    def copy_out(self, core):
+        assert core['mtype'] == 'AARCH64', "The process image is not for aarch64"
+        core['ti_aarch64']['gpregs']['sp'] = self.sp
+        core['ti_aarch64']['gpregs']['pc'] = self.pc
+        for i in range(31):
+            core['ti_aarch64']['gpregs']['regs'][i] = self.x[i]
+        for i in range(64):
+            core['ti_aarch64']['fpsimd']['vregs'][i] = self.v[i]
