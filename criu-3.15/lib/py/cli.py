@@ -538,6 +538,42 @@ cpy = {
 def copy(opts):
     cpy[opts['what']](opts)
 
+def vdso_dump(opts):
+    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
+    pid = get_task_id(ps, 'pid')
+    mm = pycriu.images.load(utils.dinf(opts, "mm-%d.img" % pid))['entries'][0]
+    vmas = mm['vmas']
+    vdso = [v for v in vmas if (v['status']>>3)&1 != 0][0]
+    vdso_st_addr = vdso['start']
+    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    pages_to_skip = 0
+    for entry in pm[1:]:
+        nr_pages = entry['nr_pages']
+        if entry['vaddr'] != vdso_st_addr:
+            pages_to_skip += nr_pages
+        else:
+            vdso_nr_pages = nr_pages 
+            break
+    
+    pages = utils.dinf(opts, "pages-%d.img" % 1)
+    pages.seek(pages_to_skip<<12)
+    if(not vdso_nr_pages):
+        raise Exception("Could not find VDSO")
+    
+    vdso_num_bytes = vdso_nr_pages << 12
+    vdso_bytes = pages.read(vdso_num_bytes)
+    vdso_out = utils.doutf(opts, opts['out'])
+    vdso_out.write(vdso_bytes)
+    vdso_out.close()
+
+
+dmp = {
+    'vdso': vdso_dump
+}
+
+def dump(opts):
+    dmp[opts['what']](opts)
+
 
 def get_default_arg(opts, arg, default=""):
     if opts[arg]:
@@ -615,7 +651,7 @@ def main():
     sunw_parser.add_argument('bin', help='binary file name')
     sunw_parser.set_defaults(func=sunw)
 
-    # Stack Map
+    # ELF Utils
     sm_parser = subparsers.add_parser('elf', help='elf utils')
     sm_parser.add_argument('dir', help='directory where image files exist')
     sm_parser.add_argument('what', choices=['dump_sm', 'dump_sections', 'dump_sec_unw_addr', 'dump_sec_unw_loc', 'dump_sec_cs_id',
@@ -639,6 +675,13 @@ def main():
     c_parser.add_argument(
         'src_file', help='Stack file whole path to copy from')
     c_parser.set_defaults(func=copy)
+
+    # Dump Stuff from pages-1.img
+    c_parser = subparsers.add_parser('dump', help='dump from pages-1.img')
+    c_parser.add_argument('dir', help='source directory')
+    c_parser.add_argument('what', choices=['vdso'])
+    c_parser.add_argument('out', help='File name to dump the memory.')
+    c_parser.set_defaults(func=dump)
 
     # Show
     show_parser = subparsers.add_parser(
