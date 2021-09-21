@@ -591,7 +591,14 @@ def recode(opts):
         converter = Aarch64Converter()
     elif arch == "x86_64" or arch == "x86-64":
         converter = X8664Converter()
-    converter.recode(arch, directory, outdir, path_append, root_dir)
+    s = get_default_arg(opts, "serial", "no")
+    if s == "no":
+        serial = False
+    elif s == "yes":
+        serial = True
+    else:
+        raise Exception("Invalid arg for serial(choose between yes/no)")
+    converter.recode(arch, directory, outdir, path_append, root_dir, serial)
 
 
 def main():
@@ -692,7 +699,7 @@ def main():
                              action='store_true')
     show_parser.set_defaults(func=decode, pretty=True, out=None)
 
-    # recode
+    # Recode
     recode_parser = subparsers.add_parser('recode',
         help='convert criu images from architecture A to Architecture B')
     recode_parser.add_argument('-d', '--directory',
@@ -703,6 +710,8 @@ def main():
         help='append path to file names (default: "") ')
     recode_parser.add_argument('-o', '--out', help='path to output dir')
     recode_parser.add_argument('-r', '--root', help='root dir (default "")')
+    recode_parser.add_argument('-s', '--serial', 
+        help='serial communication in dest images (default: no)')
     recode_parser.set_defaults(func=recode, nopl=False)
 
     opts = vars(parser.parse_args())

@@ -13,13 +13,14 @@ import tempfile
 import time
 import subprocess
 
-from os import listdir
+from os import close, listdir
 from os.path import isfile, join
 from collections import OrderedDict
 from ctypes import *
 from shutil import copyfile
 from abc import ABCMeta, abstractmethod
 from subprocess import Popen, PIPE
+from pycriu.images import pb2dict
 
 PAGE_SIZE=4096
 ELF_binaries ={}
@@ -29,8 +30,8 @@ binary_symbols ={}
 long = int
 
 def het_log(*args):
-	#pass 
-	print(args)
+	pass 
+	#print(args)
 
 class Reg64(Structure):
 	_fields_ = [("x", c_ulonglong)]
@@ -97,18 +98,25 @@ class Converter():
 		het_log("found address", hex(addr))
 		return addr
 
-	def load_image_file(self, file_path):
+	def load_image_file(self, file_path, remove = False):
 		###use a cache to avoid reloading the same file multiple times
 		if file_path in IMG_files:
-			return IMG_files[file_path]
+			if not remove:
+				return IMG_files[file_path]
+			else:
+				pgm_img = IMG_files[file_path]
+				del IMG_files[file_path]
+				return pgm_img
 		
 		try:
-			pgm_img = pycriu.images.load(open(file_path, 'rb'), pretty=True)
+			f = open(file_path, 'rb')
+			pgm_img = pycriu.images.load(f, pretty=True)
+			f.close()
 		except pycriu.images.MagicException as exc:
 			print("Error reading", file_path)
 			sys.exit(1)
-			
-		IMG_files[file_path] = pgm_img
+		if not close:
+			IMG_files[file_path] = pgm_img
 		return pgm_img
 
 	def get_pages_offset(self, addr, pagemap_file):
@@ -421,6 +429,9 @@ class Converter():
 	@abstractmethod
 	def get_target_mem(self, mm_file, pagemap_file,  pages_file, dest_path):
 		pass
+	@abstractmethod
+	def transform_files_img_for_serial(self, files_img):
+		pass
 
 	def __recode_pid(self, pid, arch, directory, outdir, onlyfiles, files_file, path_append, root_dir):
 		time_start = time.time()
@@ -499,7 +510,7 @@ class Converter():
 		print (pid, (time_path - time_start), (time_core - time_path), (time_files - time_core), (time_mem - time_files), (time_copy - time_mem))
 		return handled_files
 
-	def recode(self, arch, directory, outdir, path_append, root_dir):
+	def recode(self, arch, directory, outdir, path_append, root_dir, serial):
 		###Generate output directory
 		if not os.path.exists(outdir):
 			os.makedirs(outdir)
@@ -517,6 +528,9 @@ class Converter():
 				bname=os.path.basename(files_file_orig)
 				files_file=os.path.join(outdir, bname)
 				copyfile(files_file_orig, files_file)
+				if serial:
+					self.transform_files_img_for_serial(files_file)
+
 		assert(pstree_file)
 		assert(files_file)
 		rec_t1 =time.time()
@@ -820,6 +834,8 @@ class X8664Converter(Converter):
 		het_log("gtm", (gtm_t1 -gtm_t0), (gtm_t2 -gtm_t1), (gtm_t3 -gtm_t2), (gtm_t4 -gtm_t3), (gtm_t5 - gtm_t4), (gtm_t6 -gtm_t5))
 		return mm_img, pagemap_img, dest_path
 
+	def transform_files_img_for_serial(self, files_img):
+		pass
 
 
 ### FROM x86_64 to aarch64
@@ -990,12 +1006,69 @@ class Aarch64Converter(Converter):
 		path_x86_64=bin_path+"_x86-64"
 		path_aarch64=bin_path+"_aarch64"
 		assert(os.path.isfile(path_x86_64) and os.path.isfile(path_aarch64))
-
 		#copy file to appropriate arch
 		#copyfile(path_aarch64, bin_path)
 		statinfo = os.stat(path_aarch64)
 		files_img["entries"][idx]["reg"]["size"] = statinfo.st_size
 		return files_img
+	
+	def transform_files_img_for_serial(self, files_img):
+		assert(os.path.isfile(files_img))
+		files_obj = self.load_image_file(files_img, True)
+		rfile_flags_map = pb2dict.rfile_flags_map
+		o_rdwr = [v[1] for v in rfile_flags_map if v[0] == "O_RDWR"][0]
+		o_append = [v[1] for v in rfile_flags_map if v[0] == "O_APPEND"][0]
+		o_nofollow = [v[1] for v in rfile_flags_map if v[0] == "O_NOFOLLOW"][0]
+		tty_ent_templ = {
+			"type": "TTY",
+			"id": 2,
+			"tty": {
+				"id": 2,
+				"tty_info_id": 2020,
+				"regf_id": 3,
+				"flags": "0x20402",
+				"fown": {
+					"uid": 0,
+					"euid": 0,
+					"signum": 0,
+					"pid_type": 0,
+					"pid": 0
+				}
+			}
+		}
+		reg_ent_templ = {
+			"type": "REG",
+			"id": 3,
+			"reg": {
+				"id": 3, 
+				"flags": o_rdwr | o_append | o_nofollow,
+				"pos": 0,
+				"name": "/dev/ttyAMA0",
+				"mode": 8576,
+				"fown": {
+					"uid": 0,
+					"euid": 0,
+					"signum": 0,
+					"pid_type": 0,
+					"pid": 0
+				}
+			}
+		}
+		tty_entry_i = [i for i in range(len(files_obj["entries"])) if \
+			files_obj["entries"][i]["type"] == "TTY"][0]
+		tty_ent_templ["id"] = files_obj["entries"][tty_entry_i]["id"]
+		tty_ent_templ["tty"]["id"] = files_obj["entries"][tty_entry_i]["tty"]["id"]
+		tty_ent_templ["tty"]["regf_id"] = files_obj["entries"][tty_entry_i]["tty"]["regf_id"]
+		regf_id = files_obj["entries"][tty_entry_i]["tty"]["regf_id"]
+		regf_entry_i = [i for i in range(len(files_obj["entries"])) if \
+			files_obj["entries"][i]["id"] == regf_id][0]
+		reg_ent_templ["id"] = files_obj["entries"][regf_entry_i]["id"]
+		reg_ent_templ["reg"]["id"] = files_obj["entries"][regf_entry_i]["reg"]["id"]
+		files_obj["entries"][tty_entry_i] = tty_ent_templ
+		files_obj["entries"][regf_entry_i] = reg_ent_templ
+		f = open(files_img, 'wb')
+		pycriu.images.dump(files_obj, f)
+		f.close()
 
 
 
