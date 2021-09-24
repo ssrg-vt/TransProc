@@ -430,7 +430,10 @@ class Converter():
 	def get_target_mem(self, mm_file, pagemap_file,  pages_file, dest_path):
 		pass
 	@abstractmethod
-	def transform_files_img_for_serial(self, files_img):
+	def transform_files_img(self, files_img):
+		pass
+	@abstractmethod
+	def transform_ttyinfo_img(self, tty_img):
 		pass
 
 	def __recode_pid(self, pid, arch, directory, outdir, onlyfiles, files_file, path_append, root_dir):
@@ -529,7 +532,12 @@ class Converter():
 				files_file=os.path.join(outdir, bname)
 				copyfile(files_file_orig, files_file)
 				if serial:
-					self.transform_files_img_for_serial(files_file)
+					self.transform_files_img(files_file)
+			if "tty-info" in fl:
+				if not serial:
+					continue
+				tty_orig=os.path.join(directory, fl)
+				self.transform_ttyinfo_img(tty_orig)
 
 		assert(pstree_file)
 		assert(files_file)
@@ -834,7 +842,10 @@ class X8664Converter(Converter):
 		het_log("gtm", (gtm_t1 -gtm_t0), (gtm_t2 -gtm_t1), (gtm_t3 -gtm_t2), (gtm_t4 -gtm_t3), (gtm_t5 - gtm_t4), (gtm_t6 -gtm_t5))
 		return mm_img, pagemap_img, dest_path
 
-	def transform_files_img_for_serial(self, files_img):
+	def transform_files_img(self, files_img):
+		pass
+
+	def transform_ttyinfo_img(self, tty_img):
 		pass
 
 
@@ -1012,7 +1023,7 @@ class Aarch64Converter(Converter):
 		files_img["entries"][idx]["reg"]["size"] = statinfo.st_size
 		return files_img
 	
-	def transform_files_img_for_serial(self, files_img):
+	def transform_files_img(self, files_img):
 		assert(os.path.isfile(files_img))
 		files_obj = self.load_image_file(files_img, True)
 		rfile_flags_map = pb2dict.rfile_flags_map
@@ -1070,6 +1081,8 @@ class Aarch64Converter(Converter):
 		pycriu.images.dump(files_obj, f)
 		f.close()
 
+	def transform_ttyinfo_img(self, tty_img):
+		pass
 
 
 def test_convert_core():
