@@ -4,13 +4,16 @@ import sys
 import json
 import struct
 
+from jsonpath_ng.lexer import JsonPathLexer
+
 import pycriu
 from pycriu import utils
 from pycriu import elf_utils
 from pycriu import stack_map_utils
 from .transformation import stack_transform
 from .transformation import core_transform
-from pycriu.het import X8664Converter, Aarch64Converter
+from pycriu.het import X8664Converter, Aarch64Converter, het_log
+from jsonpath_ng import jsonpath, parse
 
 
 def decode(opts):
@@ -31,6 +34,37 @@ def decode(opts):
     json.dump(img, f, indent=indent)
     if f == sys.stdout:
         f.write("\n")
+
+
+def edit(opts):
+    indent = None
+    try:
+        img = pycriu.images.load(utils.inf(opts), opts['pretty'], opts['nopl'])
+    except pycriu.images.MagicException as exc:
+        print("Unknown magic %#x.\n"
+              "Maybe you are feeding me an image with "
+              "raw data(i.e. pages.img)?" % exc.magic, file=sys.stderr)
+        sys.exit(1)
+
+    if opts['pretty']:
+        indent = 4
+    f = utils.outf(opts)
+    while True:
+        j = json.dumps(img, indent=indent)
+        f.write(j)
+        f.write("\n")
+        f.write("Provide JSONPath for node to update or leave blank to exit.\n")
+        ans = sys.stdin.readline().rstrip()
+        if ans == '':
+            break
+        j_expr = parse(ans)
+        j_expr.find(img)
+        f.write("Provide value to write.\n")
+        val = sys.stdin.readline().rstrip()
+        if unicode(val).isnumeric():
+            val = int(val)
+        j_expr.update(img, val)
+    pycriu.images.dump(img, open(opts['in'], 'wb'))
 
 
 def encode(opts):
@@ -689,6 +723,15 @@ def main():
     c_parser.add_argument('what', choices=['vdso'])
     c_parser.add_argument('out', help='File name to dump the memory.')
     c_parser.set_defaults(func=dump)
+
+    # Edit
+    edit_parser = subparsers.add_parser(
+        'edit', help="edit any criu image in human-readable (json) format")
+    edit_parser.add_argument("in", help='criu image file to edit')
+    edit_parser.add_argument('--nopl',
+                             help='do not show entry payload (if exists)',
+                             action='store_true')
+    edit_parser.set_defaults(func=edit, pretty=True, out=None)
 
     # Show
     show_parser = subparsers.add_parser(
