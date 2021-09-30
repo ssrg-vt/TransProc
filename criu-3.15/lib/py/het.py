@@ -750,8 +750,8 @@ class X8664Converter(Converter):
 		tmp_root_dir += bin_path
 		bin_path = tmp_root_dir
 		path_x86_64=bin_path+"_x86-64"
-		path_aarch64=bin_path+"_aarch64"
-		assert(os.path.isfile(path_x86_64) and os.path.isfile(path_aarch64))
+		# path_aarch64=bin_path+"_aarch64"
+		assert os.path.isfile(path_x86_64)
 		
 		#copy file to appropriate arch
 		#copyfile(path_x86_64, bin_path)
@@ -1015,9 +1015,9 @@ class Aarch64Converter(Converter):
 		tmp_root_dir += bin_path
 		bin_path = tmp_root_dir
 		print(bin_path) 
-		path_x86_64=bin_path+"_x86-64"
+		# path_x86_64=bin_path+"_x86-64"
 		path_aarch64=bin_path+"_aarch64"
-		assert(os.path.isfile(path_x86_64) and os.path.isfile(path_aarch64))
+		assert os.path.isfile(path_aarch64)
 		#copy file to appropriate arch
 		#copyfile(path_aarch64, bin_path)
 		statinfo = os.stat(path_aarch64)
