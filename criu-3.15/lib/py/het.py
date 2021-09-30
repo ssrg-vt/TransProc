@@ -163,38 +163,38 @@ class Converter():
 		return dest_reg.x
 
 
-	def read_regs_from_memory(self, binary, architecture, pagemap_file, pages_file, struct_def):
-		rrfm_time = time.time()
-		addr=self.get_symbol_addr(binary, b'regs_dst')
-		rrfm_time1 = time.time()
+	# def read_regs_from_memory(self, binary, architecture, pagemap_file, pages_file, struct_def):
+	# 	rrfm_time = time.time()
+	# 	addr=self.get_symbol_addr(binary, b'regs_dst')
+	# 	rrfm_time1 = time.time()
 
-		region_offset=self.get_pages_offset(addr, pagemap_file)
-		if(region_offset==-1):
-			print("rrfm: addr region not found", binary, architecture)
-			return
-		rrfm_time2 = time.time()
-		regs= self.read_struct_from_pages(pages_file, region_offset, struct_def)
-		rrfm_time3 = time.time()
+	# 	region_offset=self.get_pages_offset(addr, pagemap_file)
+	# 	if(region_offset==-1):
+	# 		print("rrfm: addr region not found", binary, architecture)
+	# 		return
+	# 	rrfm_time2 = time.time()
+	# 	regs= self.read_struct_from_pages(pages_file, region_offset, struct_def)
+	# 	rrfm_time3 = time.time()
 		
-		het_log("rrfm", rrfm_time1 -rrfm_time, rrfm_time2 -rrfm_time1, rrfm_time3 -rrfm_time2)
-		return regs
+	# 	het_log("rrfm", rrfm_time1 -rrfm_time, rrfm_time2 -rrfm_time1, rrfm_time3 -rrfm_time2)
+	# 	return regs
 
-	def read_tls_from_memory(self, binary, architecture, pagemap_file, pages_file):
-		rrfm_time = time.time()
-		addr=self.get_symbol_addr(binary, b'tls_dst')
-		rrfm_time1 = time.time()
+	# def read_tls_from_memory(self, binary, architecture, pagemap_file, pages_file):
+	# 	rrfm_time = time.time()
+	# 	addr=self.get_symbol_addr(binary, b'tls_dst')
+	# 	rrfm_time1 = time.time()
 
-		region_offset=self.get_pages_offset(addr, pagemap_file)
-		if(region_offset==-1):
-			rrfm_time2 = time.time()
-			print("rtfm: addr region not found", (rrfm_time1 - rrfm_time), (rrfm_time2 - rrfm_time1))
-			return
-		rrfm_time2 = time.time()
+	# 	region_offset=self.get_pages_offset(addr, pagemap_file)
+	# 	if(region_offset==-1):
+	# 		rrfm_time2 = time.time()
+	# 		print("rtfm: addr region not found", (rrfm_time1 - rrfm_time), (rrfm_time2 - rrfm_time1))
+	# 		return
+	# 	rrfm_time2 = time.time()
 		
-		het_log("rtfm", rrfm_time -rrfm_time, rrfm_time2 -rrfm_time1)
-		tls_addr=self.read_llong_from_pages(pages_file, region_offset)
-		het_log("!!!!tls_base", hex(tls_addr))
-		return tls_addr
+	# 	het_log("rtfm", rrfm_time -rrfm_time, rrfm_time2 -rrfm_time1)
+	# 	tls_addr=self.read_llong_from_pages(pages_file, region_offset)
+	# 	het_log("!!!!tls_base", hex(tls_addr))
+	# 	return tls_addr
 
 
 	def get_src_core(self, core_file):
@@ -729,18 +729,18 @@ class X8664Converter(Converter):
 	def get_target_core(self, architecture, binary, pages_file, pagemap_file, core_file):
 		#old_stack_tmpl, new_stack_tmpl = self.__move_stack(pages_file, pagemap_file, core_file, mm_file)
 		target_start = time.time()
-		dest_regs=self.read_regs_from_memory(binary, architecture, pagemap_file, pages_file, X86Struct)
+		# dest_regs=self.read_regs_from_memory(binary, architecture, pagemap_file, pages_file, X86Struct)
+		dest_regs = X86Struct()
 		target_regs = time.time()
-		dest_tls=self.read_tls_from_memory(binary, architecture, pagemap_file, pages_file)
-		target_tls = time.time()
+		# dest_tls=self.read_tls_from_memory(binary, architecture, pagemap_file, pages_file)
+		# target_tls = time.time()
 		het_log( "x86_64", binary, architecture, pagemap_file, pages_file)
 		
 		src_core=self.get_src_core(core_file)
 		target_src = time.time()
-		dst_core=self.convert_to_dest_core(src_core, dest_regs, dest_tls)#, old_stack_tmpl, new_stack_tmpl)
+		dst_core=self.convert_to_dest_core(src_core, dest_regs, None)#, old_stack_tmpl, new_stack_tmpl)
 		target_dst = time.time()
-		het_log("get_target_core x86_64", (target_regs - target_start), (target_tls - target_regs), (target_src - target_tls), (target_dst -target_src))
-		#het_log(dst_core['entries'][0]['thread_info'])
+		het_log("get_target_core x86_64", (target_regs - target_start), (target_dst -target_src))
 		return dst_core
 
 	def get_target_files(self, files_path, mm_file, path_append, root_dir):
@@ -961,17 +961,18 @@ class Aarch64Converter(Converter):
 	
 	def get_target_core(self, architecture, binary, pages_file, pagemap_file, core_file):
 		target_start = time.time()
-		dest_regs=self.read_regs_from_memory(binary, architecture, pagemap_file, pages_file, Aarch64Struct)
+		# dest_regs=self.read_regs_from_memory(binary, architecture, pagemap_file, pages_file, Aarch64Struct)
+		dest_regs = Aarch64Struct()
 		target_regs = time.time()
-		dest_tls=self.read_tls_from_memory(binary, architecture, pagemap_file, pages_file)
-		target_tls = time.time()
+		dest_tls = 281474840395760 #TODO: research and add logic to this to add multithreading support
+		# dest_tls=self.read_tls_from_memory(binary, architecture, pagemap_file, pages_file)
+		# target_tls = time.time()
 		het_log( "aarch64", binary, architecture, pagemap_file, pages_file)
-		
 		src_core=self.get_src_core(core_file)
 		target_src= time.time()
 		dst_core=self.convert_to_dest_core(src_core, dest_regs, dest_tls)
 		target_dst = time.time()
-		het_log("get_target_core aarch64", (target_regs - target_start), (target_tls - target_regs), (target_src - target_tls), (target_dst -target_src))
+		het_log("get_target_core aarch64", (target_regs - target_start), (target_dst -target_src))
 		return dst_core
 	
 	def get_target_mem(self, mm_file, pagemap_file,  pages_file, dest_path):

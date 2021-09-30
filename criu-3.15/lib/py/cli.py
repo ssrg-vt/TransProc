@@ -4,8 +4,6 @@ import sys
 import json
 import struct
 
-from jsonpath_ng.lexer import JsonPathLexer
-
 import pycriu
 from pycriu import utils
 from pycriu import elf_utils
