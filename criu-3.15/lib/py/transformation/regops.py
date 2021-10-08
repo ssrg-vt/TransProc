@@ -177,6 +177,7 @@ def _aarch_set_sp(sp, regset):
 
 def _aarch_set_pc(pc, regset):
     regset.pc = pc
+    regset.x[30] = pc
 
 def _aarch_set_bp(bp, regset):
     regset.x[29] = bp

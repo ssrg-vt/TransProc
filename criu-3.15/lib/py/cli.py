@@ -560,10 +560,49 @@ def stack_copy(opts):
     while data:
         pages.write(data)
         data = stack.read(8)
+    pages.close()
+    stack.close()
+
+
+def code_pages_copy(opts):
+    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
+    pid = get_task_id(ps, 'pid')
+    pages = utils.dinf(opts, "pages-%d.img" % 1, 'r+b')
+    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    mm = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+    vmas = mm['vmas']
+    for vma in vmas:
+        if vma['prot'] & 0x4 == 0: # pb2dict.mmap_prot_map['PROT_EXEC']
+            continue
+        if vma['status'] & (1 << 2) != 0: # pb2dict.mmap_status_map['VMA_AREA_VSYSCALL']
+            continue
+        if vma['status'] & (1 << 3) != 0: # pb2dict.mmap_status_map['VMA_AREA_VDSO']
+            continue
+        start_vaddr = vma['start']
+        break
+    assert start_vaddr, "Code page start address not found"
+    pages_to_skip = 0
+    num_pages = 0
+    for p in pm[1:]:
+        if p['vaddr'] != start_vaddr:
+            pages_to_skip += p['nr_pages']
+            continue
+        num_pages = p['nr_pages']
+        break
+    assert num_pages, "Code section not found in pages image file"
+    code_offset = pages_to_skip << 12
+    pages.seek(code_offset)
+    dest = elf_utils.open_elf_file(opts['dest_bin'])
+    text = elf_utils.get_elf_section(dest, '.text')
+    buffer = text.data()
+    for i in range((num_pages << 12)//8):
+        pages.write(buffer[i*8 : i*8 + 8])
+    pages.close()
 
 
 cpy = {
-    'stack': stack_copy
+    'stack': stack_copy,
+    'code_pages': code_pages_copy
 }
 
 
@@ -710,9 +749,10 @@ def main():
     # Stack Copy
     c_parser = subparsers.add_parser('copy', help='copy images')
     c_parser.add_argument('dir', help='destination directory')
-    c_parser.add_argument('what', choices=['stack'])
+    c_parser.add_argument('what', choices=['stack', 'code_pages'])
     c_parser.add_argument(
         'src_file', help='Stack file whole path to copy from')
+    c_parser.add_argument('dest_bin', help = 'Destination binary placed in src path')
     c_parser.set_defaults(func=copy)
 
     # Dump Stuff from pages-1.img
