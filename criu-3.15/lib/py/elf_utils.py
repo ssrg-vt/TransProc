@@ -8,7 +8,7 @@ def open_elf_file(dir, bin):
     elffile = ELFFile(f)
     return elffile
 
-def open_elf_file(bin):
+def open_elf_file_fp(bin):
     f = open(bin, 'rb')
     elffile = ELFFile(f)
     return elffile

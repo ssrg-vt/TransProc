@@ -592,7 +592,7 @@ def code_pages_copy(opts):
     assert num_pages, "Code section not found in pages image file"
     code_offset = pages_to_skip << 12
     pages.seek(code_offset)
-    dest = elf_utils.open_elf_file(opts['dest_bin'])
+    dest = elf_utils.open_elf_file_fp(opts['dest_bin'])
     text = elf_utils.get_elf_section(dest, '.text')
     buffer = text.data()
     for i in range((num_pages << 12)//8):
