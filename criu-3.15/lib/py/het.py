@@ -963,12 +963,12 @@ class Aarch64Converter(Converter):
 		target_start = time.time()
 		# dest_regs=self.read_regs_from_memory(binary, architecture, pagemap_file, pages_file, Aarch64Struct)
 		dest_regs = Aarch64Struct()
+		src_core=self.get_src_core(core_file)
 		target_regs = time.time()
-		dest_tls = 281474840395760 #TODO: research and add logic to this to add multithreading support
+		dest_tls = int(src_core['entries'][0]['thread_info']['gpregs']['fs_base'], 16) + 272
 		# dest_tls=self.read_tls_from_memory(binary, architecture, pagemap_file, pages_file)
 		# target_tls = time.time()
 		het_log( "aarch64", binary, architecture, pagemap_file, pages_file)
-		src_core=self.get_src_core(core_file)
 		target_src= time.time()
 		dst_core=self.convert_to_dest_core(src_core, dest_regs, dest_tls)
 		target_dst = time.time()
