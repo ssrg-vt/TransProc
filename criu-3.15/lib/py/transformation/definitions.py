@@ -1,9 +1,28 @@
 from pycriu import stack_map_utils
 from pycriu import elf_utils
 from . import regops
+from . import properties
 
 X86_64 = 0
 AARCH64 = 1
+
+SM_REGISTER = 0x1
+SM_DIRECT = 0x2
+SM_INDIRECT = 0x3
+SM_CONSTANT = 0x4
+SM_CONST_IDX = 0x5
+
+Set = 0
+Add = 1
+Sub = 2
+Mult = 3
+Divide = 4
+LShift = 5
+RShiftLog = 6
+RShiftArith = 7
+Mask = 8
+Load32 = 9
+Load64 = 10
 
 UINT64_MAX = 0b1111111111111111111111111111111111111111111111111111111111111111
 
@@ -12,8 +31,10 @@ class StHandle:
         self.type = arch_type
         if self.type == X86_64:
             self.regops = regops.x86
+            self.properties = properties.x86
         elif self.type == AARCH64:
             self.regops = regops.aarch
+            self.properties = properties.aarch
         else:
             raise Exception("Architecture not supported")
 
@@ -68,12 +89,18 @@ class StHandle:
 
 
 class Activation:
-    def __init__(self, cs, cfo, libc = False):
+    def __init__(self, cs, cfo, regset, libc = False):
         self.call_site = cs
         self.cfo = cfo # canonical frame offset
-        self.regset = None
+        self.regset = regset
         self.isLibc = libc
 
+class Fixup:
+    def __init__(self, src_addr, src_sp, act, dest_live_val):
+        self.src_addr = src_addr
+        self.src_sp = src_sp
+        self.act = act
+        self.dest_live_val = dest_live_val
 
 class RewriteContext:
     def __init__(self,st_handle, regset, stack_top_offset = 0, stack_base_offset = 0, pages = None):

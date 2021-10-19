@@ -8,6 +8,11 @@ def open_elf_file(dir, bin):
     elffile = ELFFile(f)
     return elffile
 
+def open_elf_file_fp(bin):
+    f = open(bin, 'rb')
+    elffile = ELFFile(f)
+    return elffile
+
 def get_elf_section(elffile, section_name = ''):
     if section_name == '':
         return [section for section in elffile.iter_sections()]
