@@ -445,10 +445,6 @@ def explore(opts):
     explorers[opts['what']](opts)
 
 
-def recode(opts):
-    pass
-
-
 sm_utils = {
     'dump_sm': dump_stackmap_data,
     'dump_sections': dump_sections,
@@ -463,6 +459,16 @@ sm_utils = {
 
 def elf(opts):
     sm_utils[opts['what']](opts)
+
+
+def recode(opts):
+    # copy appropriate binaries to dest path
+    # transform all files
+    # transform stack and regs
+    debug = False
+    if(opts['debug']):
+        debug = True
+    pass
 
 
 def main():
@@ -555,8 +561,8 @@ def main():
     recode_parser.add_argument('dest_dir', help='desired output directory')
     recode_parser.add_argument('target', 
         choices=['x86-64', 'aarch64'], help='target architecture')
-    recode_parser.add_argument('src_bin', help='source binary file name with full path')
-    recode_parser.add_argument('dest_bin', help='destination binary file name with full path')
+    recode_parser.add_argument('bin', help='source binary file name with full path')
+    recode_parser.add_argument('debug', help='run in debug mode')
     recode_parser.set_defaults(func=recode)
     
 
