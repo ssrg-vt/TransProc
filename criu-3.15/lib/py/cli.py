@@ -7,8 +7,10 @@ import json
 import os
 
 import pycriu
-import stack_map_utils
-import elf_utils
+
+from pycriu import stack_map_utils
+from pycriu import elf_utils
+from pycriu.converter import Aarch64Converter
 
 
 def inf(opts):
@@ -466,9 +468,11 @@ def recode(opts):
     # transform all files
     # transform stack and regs
     debug = False
-    if(opts['debug']):
+    if(opts['debug'] == 'y' or 'Y'):
         debug = True
-    pass
+    converter = Aarch64Converter(opts['src_dir'], opts['dest_dir'], opts['bin'], debug)
+    converter.assert_conditions()
+    converter.recode()
 
 
 def main():
@@ -543,14 +547,17 @@ def main():
     sm_parser = subparsers.add_parser('elf', help='elf utils')
     sm_parser.add_argument('dir', help='directory where image files exist')
     sm_parser.add_argument('what', 
-        choices=['dump_sm', 
-                 'dump_sections', 
-                 'dump_sec_unw_addr', 
-                 'dump_sec_unw_loc', 
-                 'dump_sec_cs_id',
-                 'dump_sec_cs_addr', 
-                 'dump_sec_live_val', 
-                 'dump_sec_arch_live'])
+        choices=[
+            'dump_sm', 
+            'dump_sections', 
+            'dump_sec_unw_addr', 
+            'dump_sec_unw_loc', 
+            'dump_sec_cs_id',
+            'dump_sec_cs_addr', 
+            'dump_sec_live_val', 
+            'dump_sec_arch_live'
+        ]
+    )
     sm_parser.add_argument('bin', help='binary file name')
     sm_parser.set_defaults(func=elf)
 
@@ -562,7 +569,7 @@ def main():
     recode_parser.add_argument('target', 
         choices=['x86-64', 'aarch64'], help='target architecture')
     recode_parser.add_argument('bin', help='source binary file name with full path')
-    recode_parser.add_argument('debug', help='run in debug mode')
+    recode_parser.add_argument('debug', help='run in debug mode(y/n')
     recode_parser.set_defaults(func=recode)
     
 
