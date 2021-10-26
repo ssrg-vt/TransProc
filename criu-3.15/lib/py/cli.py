@@ -468,9 +468,10 @@ def recode(opts):
     # transform all files
     # transform stack and regs
     debug = False
-    if(opts['debug'] == 'y' or 'Y'):
+    if(opts['debug'] == 'y' or opts['debug'] == 'Y'):
         debug = True
-    converter = Aarch64Converter(opts['src_dir'], opts['dest_dir'], opts['bin'], debug)
+    converter = Aarch64Converter(opts['src_dir'], opts['dest_dir'], 
+        opts['src_bin'], opts['bin_dir'], debug)
     converter.assert_conditions()
     converter.recode()
 
@@ -568,8 +569,9 @@ def main():
     recode_parser.add_argument('dest_dir', help='desired output directory')
     recode_parser.add_argument('target', 
         choices=['x86-64', 'aarch64'], help='target architecture')
-    recode_parser.add_argument('bin', help='source binary file name with full path')
-    recode_parser.add_argument('debug', help='run in debug mode(y/n')
+    recode_parser.add_argument('src_bin', help='source binary file name')
+    recode_parser.add_argument('bin_dir', help='bin directory')
+    recode_parser.add_argument('debug', help='run in debug mode(y/n)')
     recode_parser.set_defaults(func=recode)
     
 

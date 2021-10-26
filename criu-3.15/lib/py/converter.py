@@ -54,19 +54,20 @@ PAGESIZE = 4096
 class Converter():  # TODO: Extend the logic for multiple PIDs
     __metaclass__ = ABCMeta
 
-    def __init__(self, src_dir, dest_dir, bin, debug):
+    def __init__(self, src_dir, dest_dir, src_bin, bin_dir, debug):
         assert os.path.exists(src_dir), "Source directory does not exist"
         assert os.path.exists(
-            join(src_dir, bin)), "Source binary does not exist"
-        assert os.path.exists(join(src_dir, bin+'_x86-64')
+            join(src_dir, src_bin)), "Source binary does not exist"
+        assert os.path.exists(join(bin_dir, src_bin+'_x86-64')
                               ), "Binary x86-64 copy does not exist"
-        assert os.path.exists(join(src_dir, bin+'_aarch64')
+        assert os.path.exists(join(bin_dir, src_bin+'_aarch64')
                               ), "Binary aarch64 copy does not exist"
         self.debug = debug
         self.images = {}
         self.src_dir = src_dir
         self.dest_dir = dest_dir
-        self.bin = bin
+        self.bin_dir = bin_dir
+        self.bin = src_bin
         self.entry_num = 0
         self.altered_regions = dict()
         self.files_per_pid = [
@@ -549,8 +550,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
 
 
 class Aarch64Converter(Converter):
-    def __init__(self, src_dir, dest_dir, bin, debug):
-        Converter.__init__(self, src_dir, dest_dir, bin, debug)
+    def __init__(self, src_dir, dest_dir, src_bin, bin_dir, debug):
+        Converter.__init__(self, src_dir, dest_dir, src_bin, bin_dir, debug)
         self.arch = AARCH64
 
     def assert_conditions(self):  # call before calling recode
@@ -560,15 +561,15 @@ class Aarch64Converter(Converter):
         assert arch != AARCH64, "Same src and dest arch do not need transformation"
 
     def copy_bin_files(self):
-        x86_bin = join(self.src_dir, self.bin+X8664_SUFFIX)
-        aarch64_bin = join(self.src_dir, self.bin+AARCH64_SUFFIX)
+        #x86_bin = join(self.bin_dir, self.bin+X8664_SUFFIX)
+        aarch64_bin = join(self.bin_dir, self.bin+AARCH64_SUFFIX)
         base = join(self.dest_dir, self.bin)
-        x86_bin_cp = join(self.dest_dir, self.bin+X8664_SUFFIX)
-        aarch64_bin_cp = join(self.dest_dir, self.bin+AARCH64_SUFFIX)
-        shutil.copyfile(x86_bin, x86_bin_cp)
-        shutil.copyfile(aarch64_bin, aarch64_bin_cp)
+        #x86_bin_cp = join(self.dest_dir, self.bin+X8664_SUFFIX)
+        #aarch64_bin_cp = join(self.dest_dir, self.bin+AARCH64_SUFFIX)
+        #shutil.copyfile(x86_bin, x86_bin_cp)
+        #shutil.copyfile(aarch64_bin, aarch64_bin_cp)
         shutil.copyfile(aarch64_bin, base)
-        self.log('Binaries copied')
+        self.log('Binary copied')
 
     def transform_files_file(self):
         assert FILES in self.src_image_file_paths, "src files.img path not found"
