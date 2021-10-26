@@ -286,8 +286,6 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         
         new_size=original_size
         if(found):
-            ###original_size=os.stat(pages_path).st_size
-            ###het_log("orginal size", pages_path, original_size, page_nbr)
             page_offset=page_start_nbr*PAGESIZE
             cnt_size=(page_nbr*PAGESIZE)
             page_offset_end=page_offset+cnt_size
@@ -372,13 +370,10 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         pagemap_img["entries"]=pages_list[:idx]+[pgmap_tmpl]+pages_list[idx:]
 
         #where to insert in pages
-        ###original_size=os.stat(pages_path).st_size
         page_offset=page_start_nbr*PAGESIZE
         buff_size=(target_nbr*PAGESIZE)
-        #het_log("orginal size", pages_path, original_size, target_nbr, page_offset)
 
         #insert in pages
-        ###page_tmp=open(pages_path, "r+b")
         page_tmp.seek(page_offset)
         buff=page_tmp.read(original_size-page_offset)
         
@@ -558,16 +553,16 @@ class Aarch64Converter(Converter):
         core_file = self.load_image_file(self.src_image_file_paths[CORE])
         entry = self.entry_num
         arch = core_file['entries'][entry]['mtype']
+        aarch64_bin = join(self.bin_dir, self.bin+AARCH64_SUFFIX)
+        base = join(self.src_dir, self.bin)
+        a_stat = os.stat(aarch64_bin)
+        b_stat = os.stat(base)
+        assert a_stat.st_mode == b_stat.st_mode, 'rwx modes do not match for src and dest bin'
         assert arch != AARCH64, "Same src and dest arch do not need transformation"
 
     def copy_bin_files(self):
-        #x86_bin = join(self.bin_dir, self.bin+X8664_SUFFIX)
         aarch64_bin = join(self.bin_dir, self.bin+AARCH64_SUFFIX)
         base = join(self.dest_dir, self.bin)
-        #x86_bin_cp = join(self.dest_dir, self.bin+X8664_SUFFIX)
-        #aarch64_bin_cp = join(self.dest_dir, self.bin+AARCH64_SUFFIX)
-        #shutil.copyfile(x86_bin, x86_bin_cp)
-        #shutil.copyfile(aarch64_bin, aarch64_bin_cp)
         shutil.copyfile(aarch64_bin, base)
         self.log('Binary copied')
 
