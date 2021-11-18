@@ -25,7 +25,40 @@ class Reg64(Structure):
 class Reg128(Structure):
     _fields_ = [("x", c_ulonglong), ("y", c_ulonglong)]
 class Aarch64Struct(Structure):
-    _fields_ = [("magic", c_ulonglong), ("sp", c_ulonglong), ("pc", c_ulonglong), ("regs", Reg64 * 31), ("vregs", Reg128 * 32)]
+    _fields_ = [("magic", c_ulonglong), ("sp", c_ulonglong), 
+    ("pc", c_ulonglong), ("regs", Reg64 * 31), ("vregs", Reg128 * 32)]
+
+class X86Struct(Structure):
+    _fields_ = [("magic", c_ulonglong), ("rip", c_ulonglong)]
+    gregs=["rax","rdx","rcx","rbx","rsi","rdi","rbp","rsp","r8","r9","r10","r11","r12","r13","r14","r15"]
+    for grn in gregs:
+        _fields_.append((grn, c_ulonglong))
+    _fields_.append(("mmx", Reg64*8)) 
+    _fields_.append(("xmm", Reg128*16)) 
+    _fields_.append(("st", c_longdouble*8)) 
+    csregs=["cs","ss","ds","es","fs","gs"]
+    for grn in csregs:
+        _fields_.append((grn, c_uint32))
+    _fields_.append(("rflags", c_uint64))
+
+def ordered_dict_prepend(dct, key, value, dict_setitem=dict.__setitem__):
+    root = dct._OrderedDict__root
+    first = root[1]
+    if key in dct:
+        link = dct._OrderedDict__map[key]
+        link_prev, link_next, _ = link
+        link_prev[1] = link_next
+        link_next[0] = link_prev
+        link[0] = root
+        link[1] = first
+        root[1] = first[0] = link
+    else:
+        root[1] = first[0] = dct._OrderedDict__map[key] = [root, first, key]
+        dict_setitem(dct, key, value)
+
+def align(val, size=4096):
+    t = ((val + (size-1)) & ~(size-1))
+    return t
 
 X8664_SUFFIX = '_x86-64'
 AARCH64_SUFFIX = '_aarch64'
@@ -62,6 +95,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
                               ), "Binary x86-64 copy does not exist"
         assert os.path.exists(join(bin_dir, src_bin+'_aarch64')
                               ), "Binary aarch64 copy does not exist"
+        self.arch = None
         self.debug = debug
         self.images = {}
         self.src_dir = src_dir
@@ -458,9 +492,21 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     def transform_core_file(self):  # core file template
         pass
 
-    @abstractmethod
     def transform_files_file(self):
-        pass
+        assert FILES in self.src_image_file_paths, "src files.img path not found"
+        assert MM in self.src_image_file_paths, 'src mm img path not found'
+        assert FILES in self.dest_image_file_paths, "dest files.img path not found"
+        assert MM in self.dest_image_file_paths, 'dest mm img path not found'
+        src_files_img = self.load_image_file(self.src_image_file_paths[FILES])
+        (fid, idx) = self.get_binary_info(self.src_image_file_paths[FILES],
+                                          self.src_image_file_paths[MM])
+        bin = join(self.dest_dir, self.bin)
+        assert os.path.isfile(bin)
+        stat = os.stat(bin)
+        dst_files_img = copy(src_files_img)
+        dst_files_img['entries'][idx]['reg']['size'] = stat.st_size
+        self.dump_image_file(self.dest_image_file_paths[FILES], dst_files_img)
+        self.log('Files image transformed')
 
     def transform_ids_file(self):
         if IDS not in self.src_image_file_paths:
@@ -470,9 +516,62 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         shutil.copyfile(src_ids, dst_ids)
         self.log('Copied ids file')
 
-    @abstractmethod
     def transform_target_mem(self): ##mm, pagemap, pages for vdso, vvar, code_pages and vsyscall
-        pass
+        assert MM in self.src_image_file_paths, 'src mm img path not found'
+        assert PAGEMAP in self.src_image_file_paths, 'src pagemap img path not found'
+        assert PAGES in self.src_image_file_paths, 'src pages img path not found'
+        assert MM in self.dest_image_file_paths, 'dest mm img path not found'
+        assert PAGEMAP in self.dest_image_file_paths, 'dest pagemap img path not found'
+        assert PAGES in self.dest_image_file_paths, 'dest pages img path not found'
+
+        src_mm_img = self.load_image_file(self.src_image_file_paths[MM])
+        src_pm_img = self.load_image_file(self.src_image_file_paths[PAGEMAP])
+
+        dest_mm_img = copy(src_mm_img)
+        dest_pm_img = copy(src_pm_img)
+
+        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        text_sec = elf_utils.get_elf_section(dest_bin, '.text')
+        text_start = text_sec.header.sh_addr
+        pg_off = text_sec.header.sh_offset
+        text_end = align(text_start + text_sec.header.sh_size)
+        vma = [v for v in dest_mm_img['entries'][0]['vmas'] \
+            if 'PROT_EXEC' in v['prot'] and 'VMA_AREA_VDSO' not in v['status']][0]
+        vma['start'] = hex(text_start)
+        vma['end'] = hex(text_end)
+        vma['pgoff'] = pg_off
+
+        shutil.copyfile(self.src_image_file_paths[PAGES], self.dest_image_file_paths[PAGES])
+        orig_size = os.stat(self.dest_image_file_paths[PAGES]).st_size
+        dest_pages = open(self.dest_image_file_paths[PAGES], 'r+b')
+
+        ret_size = self.remove_region_type(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VDSO")
+        if ret_size > 0:
+            ret_size = self.add_target_region(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VDSO")
+            if ret_size > 0:
+                orig_size = ret_size
+
+        ret_size = self.remove_region_type(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VVAR")
+        if ret_size > 0:
+            ret_size = self.add_target_region(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VVAR")
+            if ret_size > 0:
+                orig_size = ret_size
+        
+        if self.arch == AARCH64:
+            ret_size = self.remove_region_type(dest_mm_img, dest_pm_img, 
+                dest_pages, orig_size, "VSYSCALL")
+        elif self.arch == X8664:
+            ret_size = self.add_target_region(dest_mm_img, dest_pm_img, 
+                dest_pages, orig_size, "VSYSCALL")
+        
+        (code_offset, num_pages) = self.get_code_pages_offset(dest_mm_img, dest_pm_img)
+        self.copy_code_pages(code_offset, num_pages, dest_pages)
+        dest_pages.close()
+
+        self.dump_image_file(self.dest_image_file_paths[MM], dest_mm_img)
+        self.dump_image_file(self.dest_image_file_paths[PAGEMAP], dest_pm_img)
+        self.log('pagemap image file transformed')
+        self.log('mm image file transformed')
 
     @abstractmethod
     def get_vdso_template(self):
@@ -502,9 +601,43 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         shutil.copyfile(src_timens, dst_timens)
         self.log('Copied timens file')
 
-    @abstractmethod
     def transform_stack_and_regs(self): # call after transform_core_file
-        pass
+        src_core = self.load_image_file(self.src_image_file_paths[CORE], False, True, False)
+        dest_core = self.load_image_file(self.dest_image_file_paths[CORE], False, True, False)
+        src_bin = elf_utils.open_elf_file(self.src_dir, self.bin)
+        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        
+        if self.arch == AARCH64:
+            src_handle = StHandle(definitions.X86_64, src_bin)
+            dest_handle = StHandle(definitions.AARCH64, dest_bin)
+        
+            src_regset = reg_x86_64.RegsetX8664(src_core['entries'][self.entry_num])
+            dest_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
+        
+        elif self.arch == X8664:
+            dest_handle = StHandle(definitions.X86_64, src_bin)
+            src_handle = StHandle(definitions.AARCH64, dest_bin)
+        
+            dest_regset = reg_x86_64.RegsetX8664(src_core['entries'][self.entry_num])
+            src_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
+        
+        else:
+            raise Exception("Architecture not supported")
+        
+        self.rewrite_context_init(src_handle, src_regset, dest_handle, dest_regset)
+        assert self.dest_rewrite_ctx, 'dest rewrite context not initialized'
+        assert self.src_rewrite_ctx, 'src rewrite context not initialized'
+        unwind_and_size(self.src_rewrite_ctx, self.dest_rewrite_ctx)
+        assert len(self.src_rewrite_ctx.activations) == \
+            len(self.dest_rewrite_ctx.activations), "act count unequal for src and dest"
+        for i in range(len(self.dest_rewrite_ctx.activations)):
+            self.src_rewrite_ctx.act = i
+            self.dest_rewrite_ctx.act = i
+            rewrite_frame(self.src_rewrite_ctx, self.dest_rewrite_ctx)
+        self.dest_rewrite_ctx.pages.close()
+        self.dest_rewrite_ctx.regset = self.dest_rewrite_ctx.activations[0].regset
+        self.dest_rewrite_ctx.regset.copy_out(dest_core['entries'][0])
+        self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
 
     def rewrite_context_init(self, src_handle, src_regset, dest_handle, dest_regset):
         src_sp = src_handle.regops['sp'](src_regset)
@@ -543,7 +676,201 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         self.transform_seccomp_file()
         self.transform_timens_file()
 
+#aarch64 to x86-64
+class X8664Converter(Converter):
+    def __init__(self, src_dir, dest_dir, src_bin, bin_dir, debug):
+        Converter.__init__(src_dir, dest_dir, src_bin, bin_dir, debug)
+        self.arch = X8664
+    
+    def assert_conditions(self):  # call before calling recode
+        core_file = self.load_image_file(self.src_image_file_paths[CORE])
+        entry = self.entry_num
+        arch = core_file['entries'][entry]['mtype']
+        x64_bin = join(self.bin_dir, self.bin+X8664_SUFFIX)
+        base = join(self.src_dir, self.bin)
+        a_stat = os.stat(x64_bin)
+        b_stat = os.stat(base)
+        assert a_stat.st_mode == b_stat.st_mode, 'rwx modes do not match for src and dest bin'
+        assert arch != X8664, "Same src and dest arch do not need transformation"
+    
+    def copy_bin_files(self):
+        x64_bin = join(self.bin_dir, self.bin+X8664_SUFFIX)
+        base = join(self.dest_dir, self.bin)
+        shutil.copyfile(x64_bin, base)
+        self.log('Binary copied')
+    
+    def get_vsyscall_template(self):
+        mm={
+            "start": "0xffffffffff600000", 
+            "end": "0xffffffffff601000", 
+            "pgoff": 0, 
+            "shmid": 0, 
+            "prot": "PROT_READ | PROT_EXEC", 
+            "flags": "MAP_PRIVATE | MAP_ANON", 
+            "status": "VMA_AREA_VSYSCALL | VMA_ANON_PRIVATE", 
+            "fd": -1
+        }
+        return mm, None, None
+    
+    def get_vvar_template(self):
+        mm={
+            "start": "0x7fff99ec6000", 
+            "end": "0x7fff99ec9000", 
+            "pgoff": 0, 
+            "shmid": 0, 
+            "prot": "PROT_READ", 
+            "flags": "MAP_PRIVATE | MAP_ANON", 
+            "status": "VMA_AREA_REGULAR | VMA_ANON_PRIVATE | VMA_AREA_VVAR", 
+            "fd": -1, 
+            "madv": "0x10000"
+        }
+        return mm, None, None
+    
+    def get_vdso_template(self):
+        mm= {
+            "start": "0x7fff99ec9000", 
+            "end": "0x7fff99ecb000", 
+            "pgoff": 0, 
+            "shmid": 0, 
+            "prot": "PROT_READ | PROT_EXEC", 
+            "flags": "MAP_PRIVATE | MAP_ANON", 
+            "status": "VMA_AREA_REGULAR | VMA_AREA_VDSO | VMA_ANON_PRIVATE", 
+            "fd": -1
+        }
+        pgmap= { "vaddr": "0x7fff99ec9000", "nr_pages": 2, "flags": "PE_PRESENT"}
 
+        dir_path=os.path.dirname(os.path.realpath(__file__))
+        vdso_path=os.path.join(dir_path, "templates/", "x86_64_vdso.img.tmpl")
+
+        self.log("vdso path", vdso_path)
+        f=open(vdso_path, "rb")
+        vdso=f.read()
+        f.close()
+        return mm, pgmap, vdso
+    
+    def transform_core_file(self):
+        assert CORE in self.src_image_file_paths, 'src core image file path not found'
+        assert CORE in self.dest_image_file_paths, 'dest core image file path not found'
+        src_core = self.load_image_file(self.src_image_file_paths[CORE])
+        dest_core = copy(src_core)
+        dest_regs = X86Struct()
+        
+        # Convert the type
+        dest_core['entries'][self.entry_num]['mtype']="X86_64"
+
+        # Convert thread info
+        src_info=dest_core['entries'][self.entry_num]['ti_aarch64']
+        dst_info=OrderedDict()
+        dst_info["clear_tid_addr"]=src_info["clear_tid_addr"]
+
+        # gpregs
+        reg_dict=OrderedDict()
+        translate={"rbp":"bp", "rbx":"bx", "rax":"ax", "rcx":"cx", 
+            "rdx":"dx", "rsi":"si", "rdi":"di", "rsp":"sp"}
+        for grn in X86Struct.gregs:
+            trgn=grn
+            if grn in translate.keys():
+                trgn=translate[grn]
+            reg_dict[trgn]=getattr(dest_regs, grn)
+        reg_dict["ip"]=dest_regs.rip
+        reg_dict["flags"]=dest_regs.rflags #0x206 or 0x202?
+        reg_dict["orig_ax"]=dest_regs.rax #FIXME: to check
+        reg_dict["fs_base"]=hex(int(src_info["tls"],16) - 272)
+        self.log("fs_base", reg_dict["fs_base"])
+        reg_dict["gs_base"]="0x0"
+
+        # csregs
+        for grn in X86Struct.csregs:
+            trgn=grn
+            if grn in translate.keys():
+                trgn=translate[grn]
+            reg_dict[trgn]=getattr(dest_regs, grn)
+        reg_dict["ss"]="0x2b"
+        reg_dict["cs"]="0x33"
+        reg_dict["mode"]="NATIVE"
+        self.log(reg_dict)
+        dst_info["gpregs"]=reg_dict
+
+        # fpregs
+        self.log("WARNING: floating point registers not fully supported")
+        dst_info["fpregs"]= {
+            "cwd": 0, "swd": 0, "twd": 0, "fop": 0,
+            "rip": 0, "rdp": 0, "mxcsr": 8064, "mxcsr_mask": 65535,
+            "st_space": [ 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0],
+            "xmm_space": [0, 0, 0, 0, 1024, 0, 10498320, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 0, 0, 0], 
+            "xsave": { "xstate_bv": 2,  
+                        "ymmh_space": [0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0,
+                                    0, 0, 0, 0, 0, 0, 0, 0],
+                        "bndcsr_state": [0, 0, 0, 0, 0, 0, 0, 0] 
+                    }
+        }
+
+        # TLS
+        dst_info["tls"]=[
+                    {
+                    "entry_number": 12, 
+                    "base_addr": 0, 
+                    "limit": 0, 
+                    "seg_32bit": False, 
+                    "contents_h": False, 
+                    "contents_l": False, 
+                    "read_exec_only": True, 
+                    "limit_in_pages": False, 
+                    "seg_not_present": True, 
+                    "useable": False
+                    }, 
+                    {
+                    "entry_number": 13, 
+                    "base_addr": 0, 
+                    "limit": 0, 
+                    "seg_32bit": False, 
+                    "contents_h": False, 
+                    "contents_l": False, 
+                    "read_exec_only": True, 
+                    "limit_in_pages": False, 
+                    "seg_not_present": True, 
+                    "useable": False
+                    }, 
+                    {
+                    "entry_number": 14, 
+                    "base_addr": 0, 
+                    "limit": 0, 
+                    "seg_32bit": False, 
+                    "contents_h": False, 
+                    "contents_l": False, 
+                    "read_exec_only": True, 
+                    "limit_in_pages": False, 
+                    "seg_not_present": True, 
+                    "useable": False
+                    }
+        ]
+
+        # delete old entry and add the new one
+        del dest_core['entries'][0]['ti_aarch64'] 
+        ordered_dict_prepend(dest_core['entries'][0], 'thread_info', dst_info)
+        ordered_dict_prepend(dest_core['entries'][0], 'mtype', "X86_64")
+
+        self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
+        self.log('Core file template created')
+
+
+#x86-64 to aarch64
 class Aarch64Converter(Converter):
     def __init__(self, src_dir, dest_dir, src_bin, bin_dir, debug):
         Converter.__init__(self, src_dir, dest_dir, src_bin, bin_dir, debug)
@@ -565,22 +892,6 @@ class Aarch64Converter(Converter):
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(aarch64_bin, base)
         self.log('Binary copied')
-
-    def transform_files_file(self):
-        assert FILES in self.src_image_file_paths, "src files.img path not found"
-        assert MM in self.src_image_file_paths, 'src mm img path not found'
-        assert FILES in self.dest_image_file_paths, "dest files.img path not found"
-        assert MM in self.dest_image_file_paths, 'dest mm img path not found'
-        src_files_img = self.load_image_file(self.src_image_file_paths[FILES])
-        (fid, idx) = self.get_binary_info(self.src_image_file_paths[FILES],
-                                          self.src_image_file_paths[MM])
-        aarch64_bin = join(self.dest_dir, self.bin)
-        assert os.path.isfile(aarch64_bin)
-        stat = os.stat(aarch64_bin)
-        dst_files_img = copy(src_files_img)
-        dst_files_img['entries'][idx]['reg']['size'] = stat.st_size
-        self.dump_image_file(self.dest_image_file_paths[FILES], dst_files_img)
-        self.log('Files image transformed')
 
     def get_vsyscall_template(self):
         return None, None, None
@@ -623,47 +934,6 @@ class Aarch64Converter(Converter):
         vdso = f.read(PAGESIZE)
         f.close()
         return mm, pgmap, vdso
-
-    def transform_target_mem(self):
-        assert MM in self.src_image_file_paths, 'src mm img path not found'
-        assert PAGEMAP in self.src_image_file_paths, 'src pagemap img path not found'
-        assert PAGES in self.src_image_file_paths, 'src pages img path not found'
-        assert MM in self.dest_image_file_paths, 'dest mm img path not found'
-        assert PAGEMAP in self.dest_image_file_paths, 'dest pagemap img path not found'
-        assert PAGES in self.dest_image_file_paths, 'dest pages img path not found'
-
-        src_mm_img = self.load_image_file(self.src_image_file_paths[MM])
-        src_pm_img = self.load_image_file(self.src_image_file_paths[PAGEMAP])
-
-        dest_mm_img = copy(src_mm_img)
-        dest_pm_img = copy(src_pm_img)
-        
-        shutil.copyfile(self.src_image_file_paths[PAGES], self.dest_image_file_paths[PAGES])
-        orig_size = os.stat(self.dest_image_file_paths[PAGES]).st_size
-        dest_pages = open(self.dest_image_file_paths[PAGES], 'r+b')
-
-        ret_size = self.remove_region_type(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VDSO")
-        if ret_size > 0:
-            ret_size = self.add_target_region(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VDSO")
-            if ret_size > 0:
-                orig_size = ret_size
-
-        ret_size = self.remove_region_type(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VVAR")
-        if ret_size > 0:
-            ret_size = self.add_target_region(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VVAR")
-            if ret_size > 0:
-                orig_size = ret_size
-        
-        ret_size = self.remove_region_type(dest_mm_img, dest_pm_img, dest_pages, orig_size, "VSYSCALL")
-        
-        (code_offset, num_pages) = self.get_code_pages_offset(dest_mm_img, dest_pm_img)
-        self.copy_code_pages(code_offset, num_pages, dest_pages)
-        dest_pages.close()
-
-        self.dump_image_file(self.dest_image_file_paths[MM], dest_mm_img)
-        self.dump_image_file(self.dest_image_file_paths[PAGEMAP], dest_pm_img)
-        self.log('pagemap image file transformed')
-        self.log('mm image file transformed')
 
     def transform_core_file(self):
         assert CORE in self.src_image_file_paths, 'src core image file path not found'
@@ -709,29 +979,3 @@ class Aarch64Converter(Converter):
         dest_core['entries'][0]['ti_aarch64'] = dst_info
         self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
         self.log('Core file template created')
-    
-    def transform_stack_and_regs(self):
-        src_core = self.load_image_file(self.src_image_file_paths[CORE], False, True, False)
-        dest_core = self.load_image_file(self.dest_image_file_paths[CORE], False, True, False)
-        src_bin = elf_utils.open_elf_file(self.src_dir, self.bin)
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
-        
-        src_handle = StHandle(definitions.X86_64, src_bin)
-        dest_handle = StHandle(definitions.AARCH64, dest_bin)
-        
-        src_regset = reg_x86_64.RegsetX8664(src_core['entries'][self.entry_num])
-        dest_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
-        self.rewrite_context_init(src_handle, src_regset, dest_handle, dest_regset)
-        assert self.dest_rewrite_ctx, 'dest rewrite context not initialized'
-        assert self.src_rewrite_ctx, 'src rewrite context not initialized'
-        unwind_and_size(self.src_rewrite_ctx, self.dest_rewrite_ctx)
-        assert len(self.src_rewrite_ctx.activations) == \
-            len(self.dest_rewrite_ctx.activations), "act count unequal for src and dest"
-        for i in range(len(self.dest_rewrite_ctx.activations)):
-            self.src_rewrite_ctx.act = i
-            self.dest_rewrite_ctx.act = i
-            rewrite_frame(self.src_rewrite_ctx, self.dest_rewrite_ctx)
-        self.dest_rewrite_ctx.pages.close()
-        self.dest_rewrite_ctx.regset = self.dest_rewrite_ctx.activations[0].regset
-        self.dest_rewrite_ctx.regset.copy_out(dest_core['entries'][0])
-        self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
