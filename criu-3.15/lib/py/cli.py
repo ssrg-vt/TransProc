@@ -10,7 +10,7 @@ import pycriu
 
 from pycriu import stack_map_utils
 from pycriu import elf_utils
-from pycriu.converter import Aarch64Converter
+from pycriu.converter import Aarch64Converter, X8664Converter
 
 
 def inf(opts):
@@ -470,8 +470,14 @@ def recode(opts):
     debug = False
     if(opts['debug'] == 'y' or opts['debug'] == 'Y'):
         debug = True
-    converter = Aarch64Converter(opts['src_dir'], opts['dest_dir'], 
-        opts['src_bin'], opts['bin_dir'], debug)
+    if opts['target'] == "aarch64":
+        converter = Aarch64Converter(opts['src_dir'], opts['dest_dir'], 
+            opts['src_bin'], opts['bin_dir'], debug)
+    elif opts['target'] == 'x86-64':
+        converter = X8664Converter(opts['src_dir'], opts['dest_dir'], 
+            opts['src_bin'], opts['bin_dir'], debug)
+    else:
+        raise Exception('Architecture not supported')
     converter.assert_conditions()
     converter.recode()
 

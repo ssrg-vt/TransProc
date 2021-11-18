@@ -329,8 +329,7 @@ def _get_arch_val(ctx, arch_live_val, raw_val):
             arch_live_val.operand_regnum, ctx.activations[ctx.act].regset)
         if arch_live_val.operand_type == definitions.SM_REGISTER:
             raw_val = reg
-        elif arch_live_val.operand_type == definitions.SM_DIRECT or \
-                arch_live_val.operand_type == definitions.SM_INDIRECT:
+        elif arch_live_val.operand_type == definitions.SM_DIRECT:
             st_addr = reg + arch_live_val.operand_offset_or_constant
             act = ctx.activations[ctx.act]
             sp = regops['sp'](act.regset)
@@ -346,6 +345,9 @@ def _get_arch_val(ctx, arch_live_val, raw_val):
                 raw_val = struct.unpack("<Q", ctx.pages.read(8))[0]
             else:
                 raise Exception("operand size not supported")
+        elif arch_live_val.operand_type == definitions.SM_INDIRECT:
+            st_addr = reg + arch_live_val.operand_offset_or_constant
+            raw_val = st_addr
         elif arch_live_val.operand_type == definitions.SM_CONSTANT:
             raw_val = arch_live_val.operand_offset_or_constant
         else:
