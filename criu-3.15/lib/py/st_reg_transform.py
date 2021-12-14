@@ -222,7 +222,7 @@ def _rewrite_val(src_ctx, src_val, dest_ctx, dest_val):
     if src_val.is_alloca != 0 and src_val.is_temp == 0:
         for fixup_node in dest_ctx.stack_pointers:
             (raw_val, src_ptr_offset) = _points_to_data(src_ctx, src_val, fixup_node.src_addr)
-            if raw_val:
+            if raw_val is not None:
                 _put_val_data(dest_ctx, dest_val, raw_val, fixup_node, src_ptr_offset)
     return need_local_fix
 
@@ -384,8 +384,6 @@ def _put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False):
                         write_val.append(struct.pack("Q", raw_val[i]))
             else:
                 write_val.append(struct.pack("Q", raw_val))
-                if return_loc:
-                    return val_offset
         else:
             if dest_val.operand_size == 1:
                 write_val.append(struct.pack("B", raw_val))
@@ -397,35 +395,37 @@ def _put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False):
                 write_val.append(struct.pack("Q", raw_val))
             else:
                 raise Exception("Operand size not supported")
-        for i in range(write_count):
+        for i in range(len(write_val)):
             dest_ctx.pages.write(write_val[i])
+        if return_loc:
+            return val_offset
     else:
         raise Exception("Value type %ld not supported" % dest_val.type)
 
 def _points_to_stack(ctx, live_val):
+    if live_val.is_temp == 0 and live_val.is_ptr == 0:
+        return None
     regops = ctx.st_handle.regops
     sp = regops['sp'](ctx.regset)
     act = ctx.activations[ctx.act]
-    if live_val.is_ptr:
-        if live_val.type == definitions.SM_REGISTER:
-            stack_addr = regops['reg_val'](live_val.regnum, ctx.regset)
-        elif live_val.type == definitions.SM_DIRECT or live_val.type == definitions.SM_INDIRECT:
-            st_addr = regops['reg_val'](
-                live_val.regnum, act.regset) + live_val.offset_or_const
-            val_offset = (st_addr - sp) + ctx.stack_top_offset
-            ctx.pages.seek(val_offset)
-            stack_addr = struct.unpack('<Q', ctx.pages.read(8))[0]
-        elif live_val.type == definitions.SM_CONSTANT:
-            raise Exception(
-                "Directly encoded constant too small to store ptrs")
-        elif live_val.type == definitions.SM_CONST_IDX:
-            raise Exception("constant pool entries not supported")
-        else:
-            raise Exception("invalid value type %d" % live_val.type)
-
-        if (stack_addr - sp) < 0 or \
-                (stack_addr - sp + ctx.stack_top_offset) >= ctx.stack_base_offset:
-            stack_addr = None
-        return stack_addr
+    
+    if live_val.type == definitions.SM_REGISTER:
+        stack_addr = regops['reg_val'](live_val.regnum, ctx.regset)
+    elif live_val.type == definitions.SM_DIRECT or live_val.type == definitions.SM_INDIRECT:
+        st_addr = regops['reg_val'](
+            live_val.regnum, act.regset) + live_val.offset_or_const
+        val_offset = (st_addr - sp) + ctx.stack_top_offset
+        ctx.pages.seek(val_offset)
+        stack_addr = struct.unpack('<Q', ctx.pages.read(8))[0]
+    elif live_val.type == definitions.SM_CONSTANT:
+        raise Exception(
+            "Directly encoded constant too small to store ptrs")
+    elif live_val.type == definitions.SM_CONST_IDX:
+        raise Exception("constant pool entries not supported")
     else:
-        return None
+        raise Exception("invalid value type %d" % live_val.type)
+
+    if (stack_addr - sp) < 0 or \
+            (stack_addr - sp + ctx.stack_top_offset) >= ctx.stack_base_offset:
+        stack_addr = None
+    return stack_addr
