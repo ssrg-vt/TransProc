@@ -27,8 +27,11 @@ def outf(opts):
         return sys.stdout
 
 
-def dinf(opts, name):
-    return open(os.path.join(opts['dir'], name))
+def dinf(opts, name, mode=None):
+    if not mode:
+        return open(os.path.join(opts['dir'], name))
+    else:
+        return open(os.path.join(opts['dir'], name), mode)
 
 
 def edit(opts):
@@ -482,6 +485,43 @@ def recode(opts):
     converter.recode()
 
 
+def vdso_init(opts):
+    ps = pycriu.images.load(dinf(opts, 'pstree.img', 'rb'))['entries'][0]
+    pid = get_task_id(ps, 'pid')
+    mm = pycriu.images.load(dinf(opts, "mm-%d.img" % pid, 'rb'))['entries'][0]
+    core = pycriu.images.load(dinf(opts, 'core-%d.img' % pid, 'rb'))['entries'][0]
+    vmas = mm['vmas']
+    vdso = [v for v in vmas if (v['status']>>3)&1 != 0][0]
+    vdso_st_addr = vdso['start']
+    pm = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid, 'rb'))['entries']
+    pages_to_skip = 0
+    for entry in pm[1:]:
+        nr_pages = entry['nr_pages']
+        if entry['vaddr'] != vdso_st_addr:
+            pages_to_skip += nr_pages
+        else:
+            vdso_nr_pages = nr_pages 
+            break
+    
+    pages = dinf(opts, "pages-%d.img" % 1, 'r+b')
+    pages.seek(pages_to_skip<<12)
+    if(not vdso_nr_pages):
+        raise Exception("Could not find VDSO")
+    
+    vdso_num_bytes = vdso_nr_pages << 12
+    vdso_bytes = pages.read(vdso_num_bytes)
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    if core['mtype'] == "X86_64":
+        vdso_path = os.path.join(dir_path, "templates/", "x86_64_vdso.img.tmpl")
+    elif core['mtype'] == "AARCH64":
+        vdso_path = os.path.join(dir_path, "templates/", "aarch64_vdso.img.tmpl")
+    else:
+        raise Exception("Architecture not supported")
+    f = open(vdso_path, 'wb')
+    f.write(vdso_bytes)
+    f.close()
+
+
 def main():
     desc = 'CRiu Image Tool'
     parser = argparse.ArgumentParser(
@@ -567,6 +607,12 @@ def main():
     )
     sm_parser.add_argument('bin', help='binary file name')
     sm_parser.set_defaults(func=elf)
+
+    # VSDO Init
+    v_parser = subparsers.add_parser('vdso_init', help='initialize VDSO')
+    v_parser.add_argument('dir', help='directory where image files exist')
+    v_parser.set_defaults(func=vdso_init)
+
 
     # Recode
     recode_parser = subparsers.add_parser('recode', 
