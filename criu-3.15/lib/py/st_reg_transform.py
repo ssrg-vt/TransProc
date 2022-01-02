@@ -14,6 +14,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     src_bp = src_handle.regops['bp'](src_rewrite_ctx.regset)
     dest_sp = src_sp
     dest_bp = src_bp
+    act_sp = src_sp
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
     while True:
@@ -27,7 +28,9 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
         dest_cs = dest_handle.get_call_site_from_id(src_cs.id)
         if len(dest_rewrite_ctx.activations) > 0:
             dest_bp += dest_cs.frame_size
-        src_handle.regops['set_sp'](src_sp, src_act_regset)
+        else: #factor in the frame size differences between the first frame
+            dest_bp += dest_cs.frame_size - src_cs.frame_size
+        src_handle.regops['set_sp'](act_sp, src_act_regset)
         src_handle.regops['set_bp'](src_bp, src_act_regset)
         dest_handle.regops['set_sp'](dest_sp, dest_act_regset)
         dest_handle.regops['set_bp'](dest_bp, dest_act_regset)
@@ -43,6 +46,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
                 dest_cs.addr, dest_rewrite_ctx.activations[0].regset)
         dest_stack_size += dest_cs.frame_size
         (src_bp, src_pc) = _pop_frame(src_rewrite_ctx, src_sp, src_bp)
+        act_sp += src_cs.frame_size
         if _first_frame(src_cs):
             break
     dest_rewrite_ctx.stack_size = dest_stack_size
@@ -146,14 +150,13 @@ def _put_val_data(dest_ctx, live_val_alloca, raw_val_alloca, fixup_node, ptr_off
     assert live_val_alloca.type == definitions.SM_DIRECT, \
             "Invalid value types (must be allocas for pointed-to analysis)"
     dest_alloca_offset = _put_val(dest_ctx, live_val_alloca, raw_val_alloca, False, True) #Put alloca
-    _put_ptr_to_alloca(dest_ctx, fixup_node.dest_live_val, dest_alloca_offset, ptr_offset)
+    _put_ptr_to_alloca(dest_ctx, fixup_node.dest_live_val, dest_alloca_offset, ptr_offset, fixup_node)
 
-def _put_ptr_to_alloca(dest_ctx, dest_val, dest_alloca_offset, ptr_offset):
+def _put_ptr_to_alloca(dest_ctx, dest_val, dest_alloca_offset, ptr_offset, fixup_node):
     regops = dest_ctx.st_handle.regops
-    act = dest_ctx.activations[dest_ctx.act]
-    sp = regops['sp'](act.regset)
+    sp = regops['sp'](dest_ctx.regset)
     raw_val = sp + dest_alloca_offset + ptr_offset
-    _put_val(dest_ctx, dest_val, raw_val)
+    _put_val(dest_ctx, dest_val, raw_val, fixup_node=fixup_node)
 
 # Adds the next frame pointer and return address to the stack.
 def _put_frame_ptr(ctx):
@@ -162,7 +165,7 @@ def _put_frame_ptr(ctx):
     regops = ctx.st_handle.regops
     act = ctx.activations[ctx.act]
     act_next = ctx.activations[ctx.act + 1]
-    sp = regops['sp'](act.regset)
+    sp = regops['sp'](ctx.regset)
     bp = regops['bp'](act.regset)
     offset = bp - sp
     offset += ctx.stack_top_offset
@@ -202,7 +205,7 @@ def _rewrite_val(src_ctx, src_val, dest_ctx, dest_val):
             dest_val.is_alloca and dest_val.alloca_size == 24:
         skip = True
     src_regops = src_ctx.st_handle.regops
-    src_sp = src_regops['sp'](src_ctx.regset)
+    src_sp = src_regops['sp'](src_ctx.activations[src_ctx.act].regset)
     if skip:
         return False
     stack_addr = _points_to_stack(src_ctx, src_val)
@@ -211,8 +214,7 @@ def _rewrite_val(src_ctx, src_val, dest_ctx, dest_val):
             fixup_data = definitions.Fixup(
                 stack_addr, src_sp, dest_ctx.act, dest_val)
             dest_ctx.stack_pointers.append(fixup_data)
-            src_bp = src_regops['bp'](src_ctx.activations[2].regset)
-            if (src_bp - stack_addr) < src_ctx.activations[src_ctx.act].cfo:
+            if (stack_addr - src_sp) < src_ctx.activations[src_ctx.act].cfo:
                 need_local_fix = True
         # else:
             # Warn "Pointer to stack points to called functions\n"
@@ -232,7 +234,7 @@ def _get_val(ctx, val, arch=False, return_loc = False):
                 "Cannot return location on register and constants."
     act = ctx.activations[ctx.act]
     regops = ctx.st_handle.regops
-    sp = regops['sp'](act.regset)
+    sp = regops['sp'](ctx.regset)
     if val.type == definitions.SM_REGISTER:
         # TODO: Determine whether ctx or act
         return regops['reg_val'](val.regnum, ctx.regset)
@@ -331,8 +333,7 @@ def _get_arch_val(ctx, arch_live_val, raw_val):
             raw_val = reg
         elif arch_live_val.operand_type == definitions.SM_DIRECT:
             st_addr = reg + arch_live_val.operand_offset_or_constant
-            act = ctx.activations[ctx.act]
-            sp = regops['sp'](act.regset)
+            sp = regops['sp'](ctx.regset)
             val_offset = (st_addr - sp) + ctx.stack_top_offset
             ctx.pages.seek(val_offset)
             if arch_live_val.operand_size == 1:
@@ -355,15 +356,18 @@ def _get_arch_val(ctx, arch_live_val, raw_val):
                             arch_live_val.operand_type)
         return raw_val
 
-def _put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False):
-    dest_act = dest_ctx.activations[dest_ctx.act]
+def _put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False, fixup_node = None):
+    if not fixup_node:
+        dest_act = dest_ctx.activations[dest_ctx.act]
+    else:
+        dest_act = dest_ctx.activations[fixup_node.act]
     regops = dest_ctx.st_handle.regops
     if dest_val.type == definitions.SM_REGISTER:
         regops['set_reg'](dest_val.regnum, raw_val, dest_act.regset)
     elif dest_val.type == definitions.SM_DIRECT or dest_val.type == definitions.SM_INDIRECT:
         st_addr = regops['reg_val'](
             dest_val.regnum, dest_act.regset) + dest_val.offset_or_const
-        sp = regops['sp'](dest_act.regset)
+        sp = regops['sp'](dest_ctx.regset)
         val_offset = (st_addr - sp) + dest_ctx.stack_top_offset
         dest_ctx.pages.seek(val_offset)
         write_count = 1
@@ -398,7 +402,7 @@ def _put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False):
         for i in range(len(write_val)):
             dest_ctx.pages.write(write_val[i])
         if return_loc:
-            return val_offset
+            return val_offset - dest_ctx.stack_top_offset
     else:
         raise Exception("Value type %ld not supported" % dest_val.type)
 
