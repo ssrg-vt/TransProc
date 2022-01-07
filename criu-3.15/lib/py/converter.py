@@ -687,7 +687,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
 #aarch64 to x86-64
 class X8664Converter(Converter):
     def __init__(self, src_dir, dest_dir, src_bin, bin_dir, debug):
-        Converter.__init__(src_dir, dest_dir, src_bin, bin_dir, debug)
+        Converter.__init__(self, src_dir, dest_dir, src_bin, bin_dir, debug)
         self.arch = X8664
     
     def assert_conditions(self):  # call before calling recode
