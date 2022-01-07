@@ -241,27 +241,34 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
             if 'VMA_AREA_VDSO' in vma['status']:
                 continue
             start_vaddr = vma['start']
+            end_vaddr = vma['end']
             break
         assert start_vaddr, "Code page start address not found"
+        assert end_vaddr, "Code page end address not found"
+        ans = []
         pages_to_skip = 0
         num_pages = 0
         for p in pm_img['entries'][1:]:
-            if p['vaddr'] != start_vaddr:
+            if int(p['vaddr'], 16) >= int(start_vaddr, 16) and int(p['vaddr'], 16) <= int(end_vaddr, 16):
+                num_pages = p['nr_pages']
+                code_offset = pages_to_skip << 12
+                pages_to_skip += num_pages
+                ans.append((code_offset, num_pages, p['vaddr']))
+            else:
                 pages_to_skip += p['nr_pages']
-                continue
-            num_pages = p['nr_pages']
-            break
-        assert num_pages, "Code section not found in pagemap image file"
-        code_offset = pages_to_skip << 12
-        return (code_offset, num_pages)
+        assert ans, "Code pages not found"
+        return ans
     
-    def copy_code_pages(self, code_offset, num_pages, dest_pages):
+    def copy_code_pages(self, code_offset, num_pages, vaddr, text_start, dest_pages):
         dest_pages.seek(code_offset)
         dest = elf_utils.open_elf_file_fp(join(self.dest_dir, self.bin))
         text = elf_utils.get_elf_section(dest, '.text')
         buffer = text.data()
+        va = int(vaddr, 16)
+        assert va >= text_start, "Probable logical error in getting vaddr"
+        offset = va - text_start
         for i in range((num_pages << 12)//8):
-            dest_pages.write(buffer[i*8 : i*8 + 8])
+            dest_pages.write(buffer[offset + i*8 : i*8 + 8 + offset])
 
     def get_exec_file_id(self, mm_file):
         mm_img = self.load_image_file(mm_file)
@@ -564,8 +571,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
             ret_size = self.add_target_region(dest_mm_img, dest_pm_img, 
                 dest_pages, orig_size, "VSYSCALL")
         
-        (code_offset, num_pages) = self.get_code_pages_offset(dest_mm_img, dest_pm_img)
-        self.copy_code_pages(code_offset, num_pages, dest_pages)
+        ans = self.get_code_pages_offset(dest_mm_img, dest_pm_img)
+        for a in ans:
+            self.copy_code_pages(a[0], a[1], a[2], text_start, dest_pages)
         dest_pages.close()
 
         self.dump_image_file(self.dest_image_file_paths[MM], dest_mm_img)
