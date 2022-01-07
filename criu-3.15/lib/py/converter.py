@@ -42,19 +42,23 @@ class X86Struct(Structure):
     _fields_.append(("rflags", c_uint64))
 
 def ordered_dict_prepend(dct, key, value, dict_setitem=dict.__setitem__):
-    root = dct._OrderedDict__root
-    first = root[1]
-    if key in dct:
-        link = dct._OrderedDict__map[key]
-        link_prev, link_next, _ = link
-        link_prev[1] = link_next
-        link_next[0] = link_prev
-        link[0] = root
-        link[1] = first
-        root[1] = first[0] = link
+    if sys.version_info[0] < 3:
+        root = dct._OrderedDict__root
+        first = root[1]
+        if key in dct:
+            link = dct._OrderedDict__map[key]
+            link_prev, link_next, _ = link
+            link_prev[1] = link_next
+            link_next[0] = link_prev
+            link[0] = root
+            link[1] = first
+            root[1] = first[0] = link
+        else:
+            root[1] = first[0] = dct._OrderedDict__map[key] = [root, first, key]
+            dict_setitem(dct, key, value)
     else:
-        root[1] = first[0] = dct._OrderedDict__map[key] = [root, first, key]
-        dict_setitem(dct, key, value)
+        dct[key] = value
+        dct.move_to_end(key, last=False)
 
 def align(val, size=4096):
     t = ((val + (size-1)) & ~(size-1))
@@ -623,11 +627,11 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
             dest_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
         
         elif self.arch == X8664:
-            dest_handle = StHandle(definitions.X86_64, src_bin)
-            src_handle = StHandle(definitions.AARCH64, dest_bin)
+            dest_handle = StHandle(definitions.X86_64, dest_bin)
+            src_handle = StHandle(definitions.AARCH64, src_bin)
         
-            dest_regset = reg_x86_64.RegsetX8664(src_core['entries'][self.entry_num])
-            src_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
+            dest_regset = reg_x86_64.RegsetX8664(dest_core['entries'][self.entry_num])
+            src_regset = reg_aarch64.RegsetAarch64(src_core['entries'][self.entry_num])
         
         else:
             raise Exception("Architecture not supported")
@@ -745,14 +749,14 @@ class X8664Converter(Converter):
             "status": "VMA_AREA_REGULAR | VMA_AREA_VDSO | VMA_ANON_PRIVATE", 
             "fd": -1
         }
-        pgmap= { "vaddr": "0x7fff99ec9000", "nr_pages": 2, "flags": "PE_PRESENT"}
+        pgmap= { "vaddr": "0x7fff99ec9000", "nr_pages": 1, "flags": "PE_PRESENT"}
 
         dir_path=os.path.dirname(os.path.realpath(__file__))
         vdso_path=os.path.join(dir_path, "templates/", "x86_64_vdso.img.tmpl")
 
         self.log("vdso path", vdso_path)
         f=open(vdso_path, "rb")
-        vdso=f.read()
+        vdso=f.read(PAGESIZE)
         f.close()
         return mm, pgmap, vdso
     
@@ -783,7 +787,7 @@ class X8664Converter(Converter):
         reg_dict["ip"]=dest_regs.rip
         reg_dict["flags"]=dest_regs.rflags #0x206 or 0x202?
         reg_dict["orig_ax"]=dest_regs.rax #FIXME: to check
-        reg_dict["fs_base"]=hex(int(src_info["tls"],16) - 272)
+        reg_dict["fs_base"]=hex(src_info["tls"] - 272)
         self.log("fs_base", reg_dict["fs_base"])
         reg_dict["gs_base"]="0x0"
 

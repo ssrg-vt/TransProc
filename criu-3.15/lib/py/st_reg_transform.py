@@ -22,7 +22,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
             src_act_regset = reg_x86_64.RegsetX8664()
             dest_act_regset = reg_aarch64.RegsetAarch64()
         else:
-            src_act_regset = reg_aarch64.RegsetAarch64
+            src_act_regset = reg_aarch64.RegsetAarch64()
             dest_act_regset = reg_x86_64.RegsetX8664()
         src_cs = src_handle.get_call_site_from_addr(src_pc)
         dest_cs = dest_handle.get_call_site_from_id(src_cs.id)
