@@ -1,6 +1,7 @@
 # Current version by Abhishek Bapat. SSRG, Virginia Tech 2021.
 # abapat28@vt.edu
 
+from audioop import add
 from os.path import isfile, join
 from os import listdir
 from copy import copy
@@ -541,6 +542,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         dest_mm_img = copy(src_mm_img)
         dest_pm_img = copy(src_pm_img)
 
+        self.transform_mm_file(dest_mm_img)
+        self.transform_pm_file(dest_pm_img)
+
         dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
         text_sec = elf_utils.get_elf_section(dest_bin, '.text')
         text_start = text_sec.header.sh_addr
@@ -597,6 +601,18 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     def get_vsyscall_template(self):
         pass
 
+    @abstractmethod
+    def transform_mm_file(self, mm):
+        pass
+
+    @abstractmethod
+    def transform_pm_file(self, pm):
+        pass
+
+    @abstractmethod
+    def correct_vma(self, val):
+        pass
+
     def transform_seccomp_file(self):
         if SECCOMP not in self.src_image_file_paths:
             return
@@ -639,7 +655,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         self.rewrite_context_init(src_handle, src_regset, dest_handle, dest_regset)
         assert self.dest_rewrite_ctx, 'dest rewrite context not initialized'
         assert self.src_rewrite_ctx, 'src rewrite context not initialized'
-        unwind_and_size(self.src_rewrite_ctx, self.dest_rewrite_ctx)
+        unwind_and_size(self.src_rewrite_ctx, self.dest_rewrite_ctx, self.correct_vma)
         assert len(self.src_rewrite_ctx.activations) == \
             len(self.dest_rewrite_ctx.activations), "act count unequal for src and dest"
         for i in range(len(self.dest_rewrite_ctx.activations)):
@@ -653,7 +669,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
 
     def rewrite_context_init(self, src_handle, src_regset, dest_handle, dest_regset):
         src_sp = src_handle.regops['sp'](src_regset)
-        dest_sp = src_sp
+        dest_sp = self.correct_vma(src_sp)
         src_pm = self.src_image_file_paths[PAGEMAP]
         dest_pm = self.dest_image_file_paths[PAGEMAP]
         src_pages = open(self.src_image_file_paths[PAGES], 'rb')
@@ -726,8 +742,8 @@ class X8664Converter(Converter):
     
     def get_vvar_template(self):
         mm={
-            "start": "0x7fff99ec6000", 
-            "end": "0x7fff99ec9000", 
+            "start": "0x6fff99ec6000", 
+            "end": "0x6fff99ec9000", 
             "pgoff": 0, 
             "shmid": 0, 
             "prot": "PROT_READ", 
@@ -740,8 +756,8 @@ class X8664Converter(Converter):
     
     def get_vdso_template(self):
         mm= {
-            "start": "0x7fff99ec9000", 
-            "end": "0x7fff99ecb000", 
+            "start": "0x6fff99ec9000", 
+            "end": "0x6fff99eca000", 
             "pgoff": 0, 
             "shmid": 0, 
             "prot": "PROT_READ | PROT_EXEC", 
@@ -749,7 +765,7 @@ class X8664Converter(Converter):
             "status": "VMA_AREA_REGULAR | VMA_AREA_VDSO | VMA_ANON_PRIVATE", 
             "fd": -1
         }
-        pgmap= { "vaddr": "0x7fff99ec9000", "nr_pages": 1, "flags": "PE_PRESENT"}
+        pgmap= { "vaddr": "0x6fff99ec9000", "nr_pages": 1, "flags": "PE_PRESENT"}
 
         dir_path=os.path.dirname(os.path.realpath(__file__))
         vdso_path=os.path.join(dir_path, "templates/", "x86_64_vdso.img.tmpl")
@@ -759,6 +775,53 @@ class X8664Converter(Converter):
         vdso=f.read(PAGESIZE)
         f.close()
         return mm, pgmap, vdso
+    
+    def correct_vma(self, val):
+        ref1 = 0xff0000000000
+        ref2 = 0x6f0000000000
+        num = val - ref1
+        return num + ref2
+    
+    def transform_mm_file(self, mm):
+        ref1 = 0xff0000000000
+        for vma in mm['entries'][self.entry_num]['vmas']:
+            start = int(vma['start'], 16)
+            end = int(vma['end'], 16)
+            if start < ref1:
+                continue
+            n_start = self.correct_vma(start)
+            n_end = self.correct_vma(end)
+            vma['start'] = hex(n_start)
+            vma['end'] = hex(n_end)
+        start_stack = self.correct_vma(int(mm['entries'][0]['mm_start_stack'], 16))
+        mm['entries'][0]['mm_start_stack'] = hex(start_stack)
+        arg_start = self.correct_vma(int(mm['entries'][0]['mm_arg_start'], 16))
+        mm['entries'][0]['mm_arg_start'] = hex(arg_start)
+        arg_end = self.correct_vma(int(mm['entries'][0]['mm_arg_end'], 16))
+        mm['entries'][0]['mm_arg_end'] = hex(arg_end)
+        env_start = self.correct_vma(int(mm['entries'][0]['mm_env_start'], 16))
+        mm['entries'][0]['mm_env_start'] = hex(env_start)
+        env_end = self.correct_vma(int(mm['entries'][0]['mm_env_end'], 16))
+        mm['entries'][0]['mm_env_end'] = hex(env_end)
+        for i in range(len(mm['entries'][0]['mm_saved_auxv'])):
+            n = mm['entries'][0]['mm_saved_auxv'][i]
+            if n < ref1:
+                continue
+            new_n = self.correct_vma(n)
+            mm['entries'][0]['mm_saved_auxv'][i] = new_n
+    
+    
+    def transform_pm_file(self, pm):
+        ref1 = 0xff0000000000
+        for pgmap in pm["entries"][:]:
+            if "vaddr" not in pgmap.keys():
+                continue
+            addr=int(pgmap["vaddr"], 16)
+            if addr < ref1:
+                continue
+            new_addr = hex(self.correct_vma(addr))
+            pgmap['vaddr'] = new_addr
+
     
     def transform_core_file(self):
         assert CORE in self.src_image_file_paths, 'src core image file path not found'
@@ -773,7 +836,8 @@ class X8664Converter(Converter):
         # Convert thread info
         src_info=dest_core['entries'][self.entry_num]['ti_aarch64']
         dst_info=OrderedDict()
-        dst_info["clear_tid_addr"]=src_info["clear_tid_addr"]
+        tid_addr = self.correct_vma(int(src_info["clear_tid_addr"], 16))
+        dst_info["clear_tid_addr"] = hex(tid_addr)
 
         # gpregs
         reg_dict=OrderedDict()
@@ -787,7 +851,7 @@ class X8664Converter(Converter):
         reg_dict["ip"]=dest_regs.rip
         reg_dict["flags"]=dest_regs.rflags #0x206 or 0x202?
         reg_dict["orig_ax"]=dest_regs.rax #FIXME: to check
-        reg_dict["fs_base"]=hex(src_info["tls"] - 272)
+        reg_dict["fs_base"]=hex(self.correct_vma(src_info["tls"] - 272))
         self.log("fs_base", reg_dict["fs_base"])
         reg_dict["gs_base"]="0x0"
 
@@ -946,6 +1010,15 @@ class Aarch64Converter(Converter):
         vdso = f.read(PAGESIZE)
         f.close()
         return mm, pgmap, vdso
+
+    def correct_vma(self, val):
+        return val #aarch64 task_size is greater that x86-64. No need to correct.
+    
+    def transform_pm_file(self, pm):
+        pass
+
+    def transform_mm_file(self, mm):
+        pass
 
     def transform_core_file(self):
         assert CORE in self.src_image_file_paths, 'src core image file path not found'

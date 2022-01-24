@@ -5,15 +5,15 @@ from . import definitions
 from . import reg_aarch64
 from . import reg_x86_64
 
-def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
+def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx, correct_vma):
     src_handle = src_rewrite_ctx.st_handle
     dest_handle = dest_rewrite_ctx.st_handle
     dest_stack_size = 0
     src_pc = src_handle.regops['pc'](src_rewrite_ctx.regset)
     src_sp = src_handle.regops['sp'](src_rewrite_ctx.regset)
     src_bp = src_handle.regops['bp'](src_rewrite_ctx.regset)
-    dest_sp = src_sp
-    dest_bp = src_bp
+    dest_sp = correct_vma(src_sp)
+    dest_bp = correct_vma(src_bp)
     act_sp = src_sp
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
