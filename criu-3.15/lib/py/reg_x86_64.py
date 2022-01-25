@@ -130,13 +130,13 @@ class RegsetX8664:
         core['thread_info']['gpregs']['r13'] = self.r13
         core['thread_info']['gpregs']['r14'] = self.r14
         core['thread_info']['gpregs']['r15'] = self.r15
-        core['thread_info']['gpregs']['cs'] = self.cs
-        core['thread_info']['gpregs']['ss'] = self.ss
+        #core['thread_info']['gpregs']['cs'] = self.cs
+        #core['thread_info']['gpregs']['ss'] = self.ss
         core['thread_info']['gpregs']['ds'] = self.ds
         core['thread_info']['gpregs']['es'] = self.es
         core['thread_info']['gpregs']['fs'] = self.fs
         core['thread_info']['gpregs']['gs'] = self.gs
-        core['thread_info']['gpregs']['flags'] = self.rflags
+        #core['thread_info']['gpregs']['flags'] = self.rflags
         # self.mmx = [0] * 8 #TODO Read from file
         for i in range(62): # core image has 62 entries for xmm
             core['thread_info']['fpregs']['xmm_space'][i] = self.xmm[i]
