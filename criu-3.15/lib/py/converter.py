@@ -702,7 +702,7 @@ class X8664Converter(Converter):
         base = join(self.src_dir, self.bin)
         a_stat = os.stat(x64_bin)
         b_stat = os.stat(base)
-        assert a_stat.st_mode == b_stat.st_mode, 'rwx modes do not match for src and dest bin'
+        #assert a_stat.st_mode == b_stat.st_mode, 'rwx modes do not match for src and dest bin'
         assert arch != X8664, "Same src and dest arch do not need transformation"
     
     def copy_bin_files(self):
@@ -717,7 +717,7 @@ class X8664Converter(Converter):
             "end": "0xffffffffff601000", 
             "pgoff": 0, 
             "shmid": 0, 
-            "prot": "PROT_READ | PROT_EXEC", 
+            "prot": "PROT_EXEC", 
             "flags": "MAP_PRIVATE | MAP_ANON", 
             "status": "VMA_AREA_VSYSCALL | VMA_ANON_PRIVATE", 
             "fd": -1
@@ -726,8 +726,8 @@ class X8664Converter(Converter):
     
     def get_vvar_template(self):
         mm={
-            "start": "0x7fff99ec6000", 
-            "end": "0x7fff99ec9000", 
+            "start": "0x7ffff7ffb000", 
+            "end": "0x7ffff7ffe000",
             "pgoff": 0, 
             "shmid": 0, 
             "prot": "PROT_READ", 
@@ -740,8 +740,8 @@ class X8664Converter(Converter):
     
     def get_vdso_template(self):
         mm= {
-            "start": "0x7fff99ec9000", 
-            "end": "0x7fff99ecb000", 
+            "start": "0x7ffff7ffe000",
+            "end": "0x7ffff7fff000",
             "pgoff": 0, 
             "shmid": 0, 
             "prot": "PROT_READ | PROT_EXEC", 
@@ -749,7 +749,7 @@ class X8664Converter(Converter):
             "status": "VMA_AREA_REGULAR | VMA_AREA_VDSO | VMA_ANON_PRIVATE", 
             "fd": -1
         }
-        pgmap= { "vaddr": "0x7fff99ec9000", "nr_pages": 1, "flags": "PE_PRESENT"}
+        pgmap= { "vaddr": "0x7ffff7ffe000", "nr_pages": 1, "flags": "PE_PRESENT"}
 
         dir_path=os.path.dirname(os.path.realpath(__file__))
         vdso_path=os.path.join(dir_path, "templates/", "x86_64_vdso.img.tmpl")
@@ -773,7 +773,8 @@ class X8664Converter(Converter):
         # Convert thread info
         src_info=dest_core['entries'][self.entry_num]['ti_aarch64']
         dst_info=OrderedDict()
-        dst_info["clear_tid_addr"]=src_info["clear_tid_addr"]
+        tid_addr = int(src_info["clear_tid_addr"], 16)
+        dst_info["clear_tid_addr"] = hex(tid_addr)
 
         # gpregs
         reg_dict=OrderedDict()
@@ -785,8 +786,8 @@ class X8664Converter(Converter):
                 trgn=translate[grn]
             reg_dict[trgn]=getattr(dest_regs, grn)
         reg_dict["ip"]=dest_regs.rip
-        reg_dict["flags"]=dest_regs.rflags #0x206 or 0x202?
-        reg_dict["orig_ax"]=dest_regs.rax #FIXME: to check
+        reg_dict["flags"] = hex(0x202) #0x206 or 0x202?
+        reg_dict["orig_ax"] = hex(0xffffffffffffffff) #FIXME: to check
         reg_dict["fs_base"]=hex(src_info["tls"] - 272)
         self.log("fs_base", reg_dict["fs_base"])
         reg_dict["gs_base"]="0x0"
@@ -820,7 +821,7 @@ class X8664Converter(Converter):
                         0, 0, 0, 0, 0, 0, 0, 0,
                         0, 0, 0, 0, 0, 0, 0, 0, 
                         0, 0, 0, 0, 0, 0, 0, 0], 
-            "xsave": { "xstate_bv": 2,  
+            "xsave": { "xstate_bv": 2,
                         "ymmh_space": [0, 0, 0, 0, 0, 0, 0, 0,
                                     0, 0, 0, 0, 0, 0, 0, 0,
                                     0, 0, 0, 0, 0, 0, 0, 0,
