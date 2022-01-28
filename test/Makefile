@@ -23,4 +23,5 @@ transform:
 	$(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
 
 restore:
+	chmod +x $(BIN)
 	$(CRIU) restore -vvv -o restore.log --shell-job
