@@ -1,43 +1,45 @@
 from __future__ import print_function
+import struct
+from jsonpath_ng import parse
+
 import argparse
 import sys
 import json
-import struct
+import os
 
 import pycriu
-from pycriu import utils
-from pycriu import elf_utils
+
 from pycriu import stack_map_utils
-from .transformation import stack_transform
-from .transformation import core_transform
-from pycriu.het import X8664Converter, Aarch64Converter, het_log
-from jsonpath_ng import jsonpath, parse
+from pycriu import elf_utils
+from pycriu import utils
+from pycriu.converter import Aarch64Converter, X8664Converter
 
 
-def decode(opts):
-    indent = None
+def inf(opts):
+    if opts['in']:
+        return open(opts['in'], 'rb')
+    else:
+        return sys.stdin
 
-    try:
-        img = pycriu.images.load(utils.inf(opts), opts['pretty'], opts['nopl'])
-    except pycriu.images.MagicException as exc:
-        print("Unknown magic %#x.\n"
-              "Maybe you are feeding me an image with "
-              "raw data(i.e. pages.img)?" % exc.magic, file=sys.stderr)
-        sys.exit(1)
 
-    if opts['pretty']:
-        indent = 4
+def outf(opts):
+    if opts['out']:
+        return open(opts['out'], 'w+')
+    else:
+        return sys.stdout
 
-    f = utils.outf(opts)
-    json.dump(img, f, indent=indent)
-    if f == sys.stdout:
-        f.write("\n")
+
+def dinf(opts, name, mode=None):
+    if not mode:
+        return open(os.path.join(opts['dir'], name))
+    else:
+        return open(os.path.join(opts['dir'], name), mode)
 
 
 def edit(opts):
     indent = None
     try:
-        img = pycriu.images.load(utils.inf(opts), opts['pretty'], opts['nopl'])
+        img = pycriu.images.load(inf(opts), opts['pretty'], opts['nopl'])
     except pycriu.images.MagicException as exc:
         print("Unknown magic %#x.\n"
               "Maybe you are feeding me an image with "
@@ -46,7 +48,7 @@ def edit(opts):
 
     if opts['pretty']:
         indent = 4
-    f = utils.outf(opts)
+    f = outf(opts)
     while True:
         j = json.dumps(img, indent=indent)
         f.write(j)
@@ -65,13 +67,33 @@ def edit(opts):
     pycriu.images.dump(img, open(opts['in'], 'wb'))
 
 
+def decode(opts):
+    indent = None
+
+    try:
+        img = pycriu.images.load(inf(opts), opts['pretty'], opts['nopl'])
+    except pycriu.images.MagicException as exc:
+        print("Unknown magic %#x.\n"\
+          "Maybe you are feeding me an image with "\
+          "raw data(i.e. pages.img)?" % exc.magic, file=sys.stderr)
+        sys.exit(1)
+
+    if opts['pretty']:
+        indent = 4
+
+    f = outf(opts)
+    json.dump(img, f, indent=indent)
+    if f == sys.stdout:
+        f.write("\n")
+
+
 def encode(opts):
-    img = json.load(utils.inf(opts))
-    pycriu.images.dump(img, utils.outf(opts))
+    img = json.load(inf(opts))
+    pycriu.images.dump(img, outf(opts))
 
 
 def info(opts):
-    infs = pycriu.images.info(utils.inf(opts))
+    infs = pycriu.images.info(inf(opts))
     json.dump(infs, sys.stdout, indent=4)
     print()
 
@@ -104,10 +126,10 @@ def show_ps(p, opts, depth=0):
 
 def explore_ps(opts):
     pss = {}
-    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         core = pycriu.images.load(
-            utils.dinf(opts, 'core-%d.img' % get_task_id(p, 'pid')))
+            dinf(opts, 'core-%d.img' % get_task_id(p, 'pid')))
         ps = ps_item(p, core['entries'][0])
         pss[ps.pid] = ps
 
@@ -134,8 +156,7 @@ def ftype_find_in_files(opts, ft, fid):
 
     if files_img is None:
         try:
-            files_img = pycriu.images.load(
-                utils.dinf(opts, "files.img"))['entries']
+            files_img = pycriu.images.load(dinf(opts, "files.img"))['entries']
         except:
             files_img = []
 
@@ -155,7 +176,7 @@ def ftype_find_in_image(opts, ft, fid, img):
         return f[ft['field']]
 
     if ft['img'] == None:
-        ft['img'] = pycriu.images.load(utils.dinf(opts, img))['entries']
+        ft['img'] = pycriu.images.load(dinf(opts, img))['entries']
     for f in ft['img']:
         if f['id'] == fid:
             return f
@@ -219,19 +240,18 @@ def get_file_str(opts, fd):
 
 
 def explore_fds(opts):
-    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        idi = pycriu.images.load(utils.dinf(opts, 'ids-%s.img' % pid))
+        idi = pycriu.images.load(dinf(opts, 'ids-%s.img' % pid))
         fdt = idi['entries'][0]['files_id']
-        fdi = pycriu.images.load(utils.dinf(opts, 'fdinfo-%d.img' % fdt))
+        fdi = pycriu.images.load(dinf(opts, 'fdinfo-%d.img' % fdt))
 
         print("%d" % pid)
         for fd in fdi['entries']:
             print("\t%7d: %s" % (fd['fd'], get_file_str(opts, fd)))
 
-        fdi = pycriu.images.load(utils.dinf(
-            opts, 'fs-%d.img' % pid))['entries'][0]
+        fdi = pycriu.images.load(dinf(opts, 'fs-%d.img' % pid))['entries'][0]
         print("\t%7s: %s" %
               ('cwd', get_file_str(opts, {
                   'type': 'REG',
@@ -260,12 +280,11 @@ class vma_id:
 
 
 def explore_mems(opts):
-    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     vids = vma_id()
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        mmi = pycriu.images.load(utils.dinf(
-            opts, 'mm-%d.img' % pid))['entries'][0]
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
 
         print("%d" % pid)
         print("\t%-36s    %s" % ('exe',
@@ -314,13 +333,12 @@ def explore_mems(opts):
 
 
 def explore_rss(opts):
-    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        vmas = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' %
-                                             pid))['entries'][0]['vmas']
-        pms = pycriu.images.load(utils.dinf(
-            opts, 'pagemap-%d.img' % pid))['entries']
+        vmas = pycriu.images.load(dinf(opts, 'mm-%d.img' %
+                                       pid))['entries'][0]['vmas']
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
 
         print("%d" % pid)
         vmi = 0
@@ -357,68 +375,8 @@ explorers = {
     'ps': explore_ps,
     'fds': explore_fds,
     'mems': explore_mems,
-    'rss': explore_rss,
+    'rss': explore_rss
 }
-
-
-def explore(opts):
-    explorers[opts['what']](opts)
-
-
-def sunw(opts):
-    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
-    proc_num = 1
-    output = utils.get_bin_file_symbols(opts['nm'], opts['dir'], opts['bin'])
-    if output == '':
-        print('Error parsing symbols from obj file.\n')
-        return
-    temp = [v.split(' ')[0] for v in output.split('\n')]
-    addresses = [int(a, 16) for a in temp if a != '']
-    funcs = [v.split(' ')[2] for v in output.split('\n') if v != '']
-    for p in ps_img['entries']:
-        pid = get_task_id(p, 'pid')
-        print("%d" % pid)
-        core = pycriu.images.load(
-            utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
-        if core['mtype'] == 'X86_64':
-            sp = core['thread_info']['gpregs']['sp']
-            bp = core['thread_info']['gpregs']['bp']
-            ip = core['thread_info']['gpregs']['ip']
-        elif core['mtype'] == 'AARCH64':
-            sp = core['ti_aarch64']['gpregs']['sp']
-            bp = core['ti_aarch64']['gpregs']['regs'][29]
-            ip = core['ti_aarch64']['gpregs']['pc']
-        pms = pycriu.images.load(utils.dinf(
-            opts, 'pagemap-%d.img' % pid))['entries']
-        pages_to_skip = 0
-        for pm in pms[1:]:
-            nr_pages = pm['nr_pages']
-            st_vaddr = pm['vaddr']
-            end_vaddr = st_vaddr + (nr_pages << 12)
-            if(sp > end_vaddr):
-                pages_to_skip += nr_pages
-                continue
-            else:
-                break
-
-        print('sp: 0x%lx' % sp)
-        pages = utils.dinf(opts, "pages-%d.img" % proc_num)
-        if sp != bp:
-            pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
-            for i in range(2):
-                val = struct.unpack('<Q', pages.read(8))[0]
-                print('(SP + 0x%x) 0x%lx (%ld)' % (8*i, val, val))
-
-        while True:
-            adr = [a for a in addresses if a <= ip]
-            if not bp or bp <= st_vaddr:
-                break
-            sp, bp, ip = utils.print_stack(
-                sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
-        if ip:
-            adr = [a for a in addresses if a <= ip]
-            print('\nip: 0x%lx (%s + %d)' %
-                  (ip, funcs[len(adr)-1], ip - adr[-1]))
 
 
 def dump_stackmap_data(opts):
@@ -490,6 +448,10 @@ def dump_section_arch_live_vals(opts):
             section, entries, True)
 
 
+def explore(opts):
+    explorers[opts['what']](opts)
+
+
 sm_utils = {
     'dump_sm': dump_stackmap_data,
     'dump_sections': dump_sections,
@@ -505,118 +467,90 @@ sm_utils = {
 def elf(opts):
     sm_utils[opts['what']](opts)
 
+def sunw(opts):
+    ps_img = pycriu.images.load(utils.dinf(opts, 'pstree.img'))
+    proc_num = 1
+    output = utils.get_bin_file_symbols(opts['nm'], opts['dir'], opts['bin'])
+    if output == '':
+        print('Error parsing symbols from obj file.\n')
+        return
+    temp = [v.split(' ')[0] for v in output.split('\n')]
+    addresses = [int(a, 16) for a in temp if a != '']
+    funcs = [v.split(' ')[2] for v in output.split('\n') if v != '']
+    for p in ps_img['entries']:
+        pid = get_task_id(p, 'pid')
+        print("%d" % pid)
+        core = pycriu.images.load(
+            utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
+        if core['mtype'] == 'X86_64':
+            sp = core['thread_info']['gpregs']['sp']
+            bp = core['thread_info']['gpregs']['bp']
+            ip = core['thread_info']['gpregs']['ip']
+        elif core['mtype'] == 'AARCH64':
+            sp = core['ti_aarch64']['gpregs']['sp']
+            bp = core['ti_aarch64']['gpregs']['regs'][29]
+            ip = core['ti_aarch64']['gpregs']['pc']
+        pms = pycriu.images.load(utils.dinf(
+            opts, 'pagemap-%d.img' % pid))['entries']
+        pages_to_skip = 0
+        for pm in pms[1:]:
+            nr_pages = pm['nr_pages']
+            st_vaddr = pm['vaddr']
+            end_vaddr = st_vaddr + (nr_pages << 12)
+            if(sp > end_vaddr):
+                pages_to_skip += nr_pages
+                continue
+            else:
+                break
 
-def transform_all(opts):
-    st_fn = "dest_stack"
-    src_elffile = elf_utils.open_elf_file(opts['dir'], opts['src_bin'])
-    dest_elffile = elf_utils.open_elf_file(opts['dest_dir'], opts['dest_bin'])
-    src_ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
-    pid = get_task_id(src_ps, 'pid')
-    src_core = pycriu.images.load(utils.dinf(opts, 'core-%d.img' % pid))
-    src_pm = pycriu.images.load(utils.dinf(
-        opts, 'pagemap-%d.img' % pid))['entries']
-    src_pages = utils.dinf(opts, "pages-%d.img" % 1)
-    (src_ctx, dest_ctx) = \
-        stack_transform.transform_stack(
-            src_core['entries'][0], src_elffile, dest_elffile, src_pm, src_pages, st_fn, opts)
-    dest_core_file = utils.dinf(opts, 'core-%d.img' % pid, 'rb', 'dest_dir')
-    dest_core = pycriu.images.load(dest_core_file)
-    dest_core_file.close()
-    dest_ctx.regset.copy_out(dest_core['entries'][0])
-    dest_core_file = utils.dinf(opts, 'core-%d.img' % pid, 'w+b', 'dest_dir')
-    pycriu.images.dump(dest_core, dest_core_file)
-    dest_core_file.close()
+        print('sp: 0x%lx' % sp)
+        pages = utils.dinf(opts, "pages-%d.img" % proc_num)
+        if sp != bp:
+            pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
+            for i in range(2):
+                val = struct.unpack('<Q', pages.read(8))[0]
+                print('(SP + 0x%x) 0x%lx (%ld)' % (8*i, val, val))
+
+        while True:
+            adr = [a for a in addresses if a <= ip]
+            if not bp or bp <= st_vaddr:
+                break
+            sp, bp, ip = utils.print_stack(
+                sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
+        if ip:
+            adr = [a for a in addresses if a <= ip]
+            print('\nip: 0x%lx (%s + %d)' %
+                  (ip, funcs[len(adr)-1], ip - adr[-1]))
 
 
-
-trnsfrm = {
-    'all': transform_all
-}
-
-
-def transform(opts):
-    trnsfrm[opts['what']](opts)
-
-
-def stack_copy(opts):
-    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
-    pid = get_task_id(ps, 'pid')
-    core = pycriu.images.load(utils.dinf(
-        opts, 'core-%d.img' % pid))['entries'][0]
-    pm = pycriu.images.load(utils.dinf(
-        opts, 'pagemap-%d.img' % pid))['entries']
-    pages = utils.dinf(opts, "pages-%d.img" % 1, 'r+b')
-    if core['mtype'] == 'X86_64':
-        sp = core['thread_info']['gpregs']['sp']
-    elif core['mtype'] == 'AARCH64':
-        sp = core['ti_aarch64']['gpregs']['sp']
+def recode(opts):
+    # copy appropriate binaries to dest path
+    # transform all files
+    # transform stack and regs
+    debug = False
+    if(opts['debug'] == 'y' or opts['debug'] == 'Y'):
+        debug = True
+    if opts['target'] == "aarch64":
+        converter = Aarch64Converter(opts['src_dir'], opts['dest_dir'], 
+            opts['src_bin'], opts['bin_dir'], debug)
+    elif opts['target'] == 'x86-64':
+        converter = X8664Converter(opts['src_dir'], opts['dest_dir'], 
+            opts['src_bin'], opts['bin_dir'], debug)
     else:
-        raise Exception("Architecture not yet supported")
-    (pages_to_skip, st_vaddr, end_vaddr) = stack_transform.get_stack_page_offset(pm, sp)
-    stack_top_offset = (pages_to_skip << 12) + (sp - st_vaddr)
-    pages.seek(stack_top_offset)
-    stack = open(opts['src_file'], 'rb')
-    data = stack.read(8)
-    while data:
-        pages.write(data)
-        data = stack.read(8)
-    pages.close()
-    stack.close()
+        raise Exception('Architecture not supported')
+    converter.assert_conditions()
+    converter.recode()
 
 
-def code_pages_copy(opts):
-    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
+def vdso_init(opts):
+    ps = pycriu.images.load(dinf(opts, 'pstree.img', 'rb'))['entries'][0]
     pid = get_task_id(ps, 'pid')
-    pages = utils.dinf(opts, "pages-%d.img" % 1, 'r+b')
-    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
-    mm = pycriu.images.load(utils.dinf(opts, 'mm-%d.img' % pid))['entries'][0]
-    vmas = mm['vmas']
-    for vma in vmas:
-        if vma['prot'] & 0x4 == 0: # pb2dict.mmap_prot_map['PROT_EXEC']
-            continue
-        if vma['status'] & (1 << 2) != 0: # pb2dict.mmap_status_map['VMA_AREA_VSYSCALL']
-            continue
-        if vma['status'] & (1 << 3) != 0: # pb2dict.mmap_status_map['VMA_AREA_VDSO']
-            continue
-        start_vaddr = vma['start']
-        break
-    assert start_vaddr, "Code page start address not found"
-    pages_to_skip = 0
-    num_pages = 0
-    for p in pm[1:]:
-        if p['vaddr'] != start_vaddr:
-            pages_to_skip += p['nr_pages']
-            continue
-        num_pages = p['nr_pages']
-        break
-    assert num_pages, "Code section not found in pages image file"
-    code_offset = pages_to_skip << 12
-    pages.seek(code_offset)
-    dest = elf_utils.open_elf_file_fp(opts['dest_bin'])
-    text = elf_utils.get_elf_section(dest, '.text')
-    buffer = text.data()
-    for i in range((num_pages << 12)//8):
-        pages.write(buffer[i*8 : i*8 + 8])
-    pages.close()
-
-
-cpy = {
-    'stack': stack_copy,
-    'code_pages': code_pages_copy
-}
-
-
-def copy(opts):
-    cpy[opts['what']](opts)
-
-def vdso_dump(opts):
-    ps = pycriu.images.load(utils.dinf(opts, 'pstree.img'))['entries'][0]
-    pid = get_task_id(ps, 'pid')
-    mm = pycriu.images.load(utils.dinf(opts, "mm-%d.img" % pid))['entries'][0]
+    mm = pycriu.images.load(dinf(opts, "mm-%d.img" % pid, 'rb'))['entries'][0]
+    core = pycriu.images.load(dinf(opts, 'core-%d.img' % pid, 'rb'))['entries'][0]
     vmas = mm['vmas']
     vdso = [v for v in vmas if (v['status']>>3)&1 != 0][0]
     vdso_st_addr = vdso['start']
-    pm = pycriu.images.load(utils.dinf(opts, 'pagemap-%d.img' % pid))['entries']
+    pm = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid, 'rb'))['entries']
     pages_to_skip = 0
     for entry in pm[1:]:
         nr_pages = entry['nr_pages']
@@ -626,50 +560,23 @@ def vdso_dump(opts):
             vdso_nr_pages = nr_pages 
             break
     
-    pages = utils.dinf(opts, "pages-%d.img" % 1)
+    pages = dinf(opts, "pages-%d.img" % 1, 'r+b')
     pages.seek(pages_to_skip<<12)
     if(not vdso_nr_pages):
         raise Exception("Could not find VDSO")
     
     vdso_num_bytes = vdso_nr_pages << 12
     vdso_bytes = pages.read(vdso_num_bytes)
-    vdso_out = utils.doutf(opts, opts['out'])
-    vdso_out.write(vdso_bytes)
-    vdso_out.close()
-
-
-dmp = {
-    'vdso': vdso_dump
-}
-
-def dump(opts):
-    dmp[opts['what']](opts)
-
-
-def get_default_arg(opts, arg, default=""):
-    if opts[arg]:
-        return opts[arg]
-    return default
-
-
-def recode(opts):
-    arch = get_default_arg(opts, "target", "aarch64")
-    directory = get_default_arg(opts, 'directory', ".")
-    outdir = get_default_arg(opts, 'out', "new_image."+str(arch))
-    path_append = get_default_arg(opts, 'append', "")
-    root_dir = get_default_arg(opts, 'root', "")
-    if arch == "aarch64":
-        converter = Aarch64Converter()
-    elif arch == "x86_64" or arch == "x86-64":
-        converter = X8664Converter()
-    s = get_default_arg(opts, "serial", "no")
-    if s == "no":
-        serial = False
-    elif s == "yes":
-        serial = True
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    if core['mtype'] == "X86_64":
+        vdso_path = os.path.join(dir_path, "templates/", "x86_64_vdso.img.tmpl")
+    elif core['mtype'] == "AARCH64":
+        vdso_path = os.path.join(dir_path, "templates/", "aarch64_vdso.img.tmpl")
     else:
-        raise Exception("Invalid arg for serial(choose between yes/no)")
-    converter.recode(arch, directory, outdir, path_append, root_dir, serial)
+        raise Exception("Architecture not supported")
+    f = open(vdso_path, 'wb')
+    f.write(vdso_bytes)
+    f.close()
 
 
 def main():
@@ -680,12 +587,22 @@ def main():
     subparsers = parser.add_subparsers(
         help='Use crit CMD --help for command-specific help')
 
+    # Edit
+    edit_parser = subparsers.add_parser(
+        'edit', help="edit any criu image in human-readable (json) format")
+    edit_parser.add_argument("in", help='criu image file to edit')
+    edit_parser.add_argument('--nopl',
+                             help='do not show entry payload (if exists)',
+                             action='store_true')
+    edit_parser.set_defaults(func=edit, pretty=True, out=None)
+
     # Decode
     decode_parser = subparsers.add_parser(
         'decode', help='convert criu image from binary type to json')
     decode_parser.add_argument(
         '--pretty',
-        help='Multiline with indents and some numerical fields in field-specific format',
+        help=
+        'Multiline with indents and some numerical fields in field-specific format',
         action='store_true')
     decode_parser.add_argument(
         '-i',
@@ -721,56 +638,6 @@ def main():
     x_parser.add_argument('what', choices=['ps', 'fds', 'mems', 'rss'])
     x_parser.set_defaults(func=explore)
 
-    # Stack Unwind
-    sunw_parser = subparsers.add_parser(
-        'sunw', help='unwind stack from image files')
-    sunw_parser.add_argument('dir', help='directory where image files exist')
-    sunw_parser.add_argument('nm', help='GNU util nm')
-    sunw_parser.add_argument('bin', help='binary file name')
-    sunw_parser.set_defaults(func=sunw)
-
-    # ELF Utils
-    sm_parser = subparsers.add_parser('elf', help='elf utils')
-    sm_parser.add_argument('dir', help='directory where image files exist')
-    sm_parser.add_argument('what', choices=['dump_sm', 'dump_sections', 'dump_sec_unw_addr', 'dump_sec_unw_loc', 'dump_sec_cs_id',
-                                            'dump_sec_cs_addr', 'dump_sec_live_val', 'dump_sec_arch_live'])
-    sm_parser.add_argument('bin', help='binary file name')
-    sm_parser.set_defaults(func=elf)
-
-    # Transformations
-    t_parser = subparsers.add_parser('trans', help='transform image')
-    t_parser.add_argument('dir', help='directory where source image files exist')
-    t_parser.add_argument('dest_dir', help='directory where destination image files exist')
-    t_parser.add_argument('what', choices=['all'])
-    t_parser.add_argument('src_bin', help='source binary file name')
-    t_parser.add_argument('dest_bin', help='destination binary file name')
-    t_parser.set_defaults(func=transform)
-
-    # Stack Copy
-    c_parser = subparsers.add_parser('copy', help='copy images')
-    c_parser.add_argument('dir', help='destination directory')
-    c_parser.add_argument('what', choices=['stack', 'code_pages'])
-    c_parser.add_argument(
-        'src_file', help='Stack file whole path to copy from')
-    c_parser.add_argument('dest_bin', help = 'Destination binary placed in src path')
-    c_parser.set_defaults(func=copy)
-
-    # Dump Stuff from pages-1.img
-    c_parser = subparsers.add_parser('dump', help='dump from pages-1.img')
-    c_parser.add_argument('dir', help='source directory')
-    c_parser.add_argument('what', choices=['vdso'])
-    c_parser.add_argument('out', help='File name to dump the memory.')
-    c_parser.set_defaults(func=dump)
-
-    # Edit
-    edit_parser = subparsers.add_parser(
-        'edit', help="edit any criu image in human-readable (json) format")
-    edit_parser.add_argument("in", help='criu image file to edit')
-    edit_parser.add_argument('--nopl',
-                             help='do not show entry payload (if exists)',
-                             action='store_true')
-    edit_parser.set_defaults(func=edit, pretty=True, out=None)
-
     # Show
     show_parser = subparsers.add_parser(
         'show', help="convert criu image from binary to human-readable json")
@@ -780,20 +647,49 @@ def main():
                              action='store_true')
     show_parser.set_defaults(func=decode, pretty=True, out=None)
 
+    # ELF Utils
+    sm_parser = subparsers.add_parser('elf', help='elf utils')
+    sm_parser.add_argument('dir', help='directory where image files exist')
+    sm_parser.add_argument('what', 
+        choices=[
+            'dump_sm', 
+            'dump_sections', 
+            'dump_sec_unw_addr', 
+            'dump_sec_unw_loc', 
+            'dump_sec_cs_id',
+            'dump_sec_cs_addr', 
+            'dump_sec_live_val', 
+            'dump_sec_arch_live'
+        ]
+    )
+    sm_parser.add_argument('bin', help='binary file name')
+    sm_parser.set_defaults(func=elf)
+
+    # VSDO Init
+    v_parser = subparsers.add_parser('vdso_init', help='initialize VDSO')
+    v_parser.add_argument('dir', help='directory where image files exist')
+    v_parser.set_defaults(func=vdso_init)
+
+    # Stack Unwind
+    sunw_parser = subparsers.add_parser(
+        'sunw', help='unwind stack from image files')
+    sunw_parser.add_argument('dir', help='directory where image files exist')
+    sunw_parser.add_argument('nm', help='GNU util nm')
+    sunw_parser.add_argument('bin', help='binary file name')
+    sunw_parser.set_defaults(func=sunw)
+
     # Recode
-    recode_parser = subparsers.add_parser('recode',
-        help='convert criu images from architecture A to Architecture B')
-    recode_parser.add_argument('-d', '--directory',
-        help='directory containing the images (local by default)')
-    recode_parser.add_argument('-t', '--target',
-        help='target architecture (default: aarch64)')
-    recode_parser.add_argument('-a', '--append',
-        help='append path to file names (default: "") ')
-    recode_parser.add_argument('-o', '--out', help='path to output dir')
-    recode_parser.add_argument('-r', '--root', help='root dir (default "")')
-    recode_parser.add_argument('-s', '--serial', 
-        help='serial communication in dest images (default: no)')
-    recode_parser.set_defaults(func=recode, nopl=False)
+    recode_parser = subparsers.add_parser('recode', 
+        help='convert criu images from architecture A to architecture B')
+    recode_parser.add_argument('src_dir', help='directory containing the images')
+    recode_parser.add_argument('dest_dir', help='desired output directory')
+    recode_parser.add_argument('target', 
+        choices=['x86-64', 'aarch64'], help='target architecture')
+    recode_parser.add_argument('src_bin', help='source binary file name')
+    recode_parser.add_argument('bin_dir', help='bin directory')
+    recode_parser.add_argument('debug', help='run in debug mode(y/n)')
+    recode_parser.set_defaults(func=recode)
+    
 
     opts = vars(parser.parse_args())
 
