@@ -51,7 +51,6 @@ void get_regs(pid_t cpid, struct user_regs_struct *regs)
 
 unsigned long set_breakpoint(pid_t cpid, unsigned long addr)
 {
-    // unsigned long addr = 0x00501031;
     unsigned long data = ptrace(PTRACE_PEEKTEXT, cpid, (void *)addr, 0);
 
     // Write the trap instruction
