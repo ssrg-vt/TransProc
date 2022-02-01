@@ -77,11 +77,12 @@ void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struc
     ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)data);
     #ifdef __aarch64__
         regs->pc -= 1;
+	ptrace(PTRACE_SETREGSET, cpid, 0, regs);
     #endif
     #ifdef __x86_64__
         regs->rip -= 1;
+	ptrace(PTRACE_SETREGS, cpid, 0, regs);
     #endif
-    ptrace(PTRACE_SETREGS, cpid, 0, regs);
 }
 
 void continue_running(pid_t cpid)
