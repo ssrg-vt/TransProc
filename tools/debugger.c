@@ -7,7 +7,9 @@
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#ifdef __x86_64__
 #include <sys/reg.h>
+#endif
 #include <sys/user.h>
 #include <unistd.h>
 #include <errno.h>
