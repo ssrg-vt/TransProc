@@ -40,7 +40,12 @@ void run_target(const char *programname)
 
 void get_regs(pid_t cpid, struct user_regs_struct *regs)
 {
+    #ifdef __x86_64__
     ptrace(PTRACE_GETREGS, cpid, 0, regs);
+    #endif
+    #ifdef __aarch64__
+    ptrace(PTRACE_GETREGSET, cpid, 0, regs);
+    #endif
 }
 
 unsigned long set_breakpoint(pid_t cpid, unsigned long addr)
