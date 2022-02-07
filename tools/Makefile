@@ -34,5 +34,8 @@ debugger-aarch64: debugger-aarch64.o
 attach_pid: attach_pid.c
 	$(GCC) -o $@ $<
 
+debugger: debugger.c
+	$(GCC) -o $@ $<
+
 clean:
-	rm -rf debugger-x86_64 debugger-aarch64 debugger-x86_64.o debugger-aarch64.o attach_pid
+	rm -rf debugger-x86_64 debugger-aarch64 debugger debugger-x86_64.o debugger-aarch64.o attach_pid
