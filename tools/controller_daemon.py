@@ -1,3 +1,4 @@
+from curses.ascii import DEL
 import subprocess
 import os
 import sys
@@ -60,8 +61,16 @@ class ControllerDaemon:
             ], cwd=dir)
     
 
-    def restore(self, bin, cwd):
+    def restore(self, bin, cwd, pid):
         self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
+        time.sleep(DELAY)
+        self._spawn_independent_subprocess(["kill", "-SIGCONT", pid])
+    
+
+    def restore_and_infect(self, bin, cwd, pid, addr):
+        attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
+        self.restore(bin, cwd, pid)
+        self._spawn_independent_subprocess([attach_pid, pid, addr], cwd=cwd)
 
 
 def assert_conditions(dir, bin, tranproc):
@@ -73,10 +82,13 @@ def assert_conditions(dir, bin, tranproc):
     assert os.path.exists(os.path.join(bin_dir, bin+"_x86-64"))
     debugger = os.path.join(tranproc, "tools", "debugger")
     assert os.path.exists(debugger)
+    attach_pid = os.path.join(tranproc, "tools", "attach_pid")
+    assert os.path.exists(attach_pid)
 
 
 addr = "0x50146f"
-dir = "/home/abhishek/temp/snu_npb/bt/temp/"
+addr2 = "0x501052"
+dir = "/root/bt"
 bin = "bt"
 tranproc = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -89,6 +101,6 @@ pid = cd.get_pid(bin)
 cd.dump(pid, dir)
 time.sleep(DELAY)
 cd.transform(bin, "aarch64", dir)
-cd.restore(bin, dir)
+cd.restore_and_infect(bin, dir, pid, addr2)
 
 print('Parent process ends')
