@@ -64,12 +64,13 @@ class ControllerDaemon:
     def restore(self, bin, cwd, pid):
         self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
         time.sleep(DELAY)
-        self._spawn_independent_subprocess(["kill", "-SIGCONT", pid])
+        self._spawn_independent_subprocess(["kill", "-SIGCONT", "%s" % pid])
     
 
     def restore_and_infect(self, bin, cwd, pid, addr):
         attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
         self.restore(bin, cwd, pid)
+        time.sleep(2*DELAY)
         self._spawn_independent_subprocess([attach_pid, pid, addr], cwd=cwd)
 
 
@@ -97,10 +98,11 @@ cd = ControllerDaemon()
 # cd.run(os.path.join(dir, bin), dir)
 cd.run_and_infect(addr, bin, dir)
 time.sleep(DELAY)
-pid = cd.get_pid(bin)
+pid = cd.get_pid(bin).strip()
 cd.dump(pid, dir)
 time.sleep(DELAY)
 cd.transform(bin, "aarch64", dir)
-cd.restore_and_infect(bin, dir, pid, addr2)
+cd.restore(bin, dir, pid)
+# cd.restore_and_infect(bin, dir, pid, addr2)
 
 print('Parent process ends')
