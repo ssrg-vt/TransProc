@@ -3,6 +3,10 @@ import os
 import sys
 import time
 
+
+DELAY = 0.1 #TODO: find out a better way.
+
+
 class ControllerDaemon:
     def __init__(self):
         self.root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +45,23 @@ class ControllerDaemon:
 
     def dump(self, pid, cwd):
         self._spawn_independent_subprocess(["make", "PID=%s" % pid, "dump"], cwd=cwd)
+    
+
+    def transform(self, bin, tgt, dir, debug='n'):
+        bin_dir = os.path.join(dir, "bin/")    
+        self._spawn_independent_subprocess(
+            [
+             "make", 
+             "BIN=%s" % bin, 
+             "BINDIR=%s" % bin_dir, 
+             "TGT=%s" % tgt, 
+             "DEBUG=%s" % debug, 
+             "transform"
+            ], cwd=dir)
+    
+
+    def restore(self, bin, cwd):
+        self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
 
 
 def assert_conditions(dir, bin, tranproc):
@@ -63,8 +84,11 @@ assert_conditions(dir, bin, tranproc)
 cd = ControllerDaemon()
 # cd.run(os.path.join(dir, bin), dir)
 cd.run_and_infect(addr, bin, dir)
-time.sleep(1)
+time.sleep(DELAY)
 pid = cd.get_pid(bin)
-print("PID: %s", pid)
-#cd.dump(pid, dir)
+cd.dump(pid, dir)
+time.sleep(DELAY)
+cd.transform(bin, "aarch64", dir)
+cd.restore(bin, dir)
+
 print('Parent process ends')
