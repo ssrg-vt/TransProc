@@ -99,6 +99,7 @@ void continue_running(pid_t cpid)
     }
     // Let the child process continue running
     ptrace(PTRACE_CONT, cpid, 0, 0);
+    ptrace(PTRACE_CONT, cpid, 0, 0);
 }
 
 void wait_child()
