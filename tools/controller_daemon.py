@@ -6,6 +6,7 @@ import time
 
 
 DELAY = 0.1 #TODO: find out a better way.
+DELAY_PRECISION = 0.01
 
 
 class ControllerDaemon:
@@ -31,6 +32,22 @@ class ControllerDaemon:
         sys.exit(0)
 
 
+    def _busy_wait(self, f=None):
+        assert f, "No function provided to wait on"
+        i = 1
+        item = None
+        while True:
+            item = f()
+            print(item)
+            if item:
+                break
+            if i > 10:
+                break
+            time.sleep(i*DELAY_PRECISION)
+            i += 1
+        return item
+
+
     def run(self, command, cwd):
         self._spawn_independent_subprocess(command, cwd=cwd)
 
@@ -40,9 +57,26 @@ class ControllerDaemon:
         self._spawn_independent_subprocess([debugger, bin, addr], cwd=cwd)
     
 
-    def get_pid(self, bin):
-        return subprocess.check_output(["pidof", bin], universal_newlines=True)
+    def check_pid(self, bin):
+        def f():
+            try:
+                pid = subprocess.check_output(["pidof", bin], universal_newlines=True).strip()
+                return pid
+            except:
+                return None
+        pid = self._busy_wait(f)
+        return pid
     
+
+    def check_killed(self, bin):
+        def f():
+            try:
+                pid = subprocess.check_output(["pidof", bin], universal_newlines=True).strip()
+                return None
+            except:
+                return "Killed"
+        state = self._busy_wait(f)
+
 
     def dump(self, pid, cwd):
         self._spawn_independent_subprocess(["make", "PID=%s" % pid, "dump"], cwd=cwd)
@@ -63,15 +97,16 @@ class ControllerDaemon:
 
     def restore(self, bin, cwd, pid):
         self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
-        time.sleep(DELAY)
-        self._spawn_independent_subprocess(["kill", "-SIGCONT", "%s" % pid])
     
 
     def restore_and_infect(self, bin, cwd, pid, addr):
         attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
         self.restore(bin, cwd, pid)
-        time.sleep(2*DELAY)
         self._spawn_independent_subprocess([attach_pid, pid, addr], cwd=cwd)
+
+
+    def sigcont(self, pid):
+        self._spawn_independent_subprocess(["kill", "-SIGCONT", "%s" % pid])
 
 
 def assert_conditions(dir, bin, tranproc):
@@ -93,16 +128,16 @@ dir = "/root/bt"
 bin = "bt"
 tranproc = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-assert_conditions(dir, bin, tranproc)
+# assert_conditions(dir, bin, tranproc)
 cd = ControllerDaemon()
 # cd.run(os.path.join(dir, bin), dir)
 cd.run_and_infect(addr, bin, dir)
-time.sleep(DELAY)
-pid = cd.get_pid(bin).strip()
+# time.sleep(DELAY)
+pid = cd.check_pid(bin)
 cd.dump(pid, dir)
-time.sleep(DELAY)
+cd.check_killed(bin)
 cd.transform(bin, "aarch64", dir)
-cd.restore(bin, dir, pid)
-# cd.restore_and_infect(bin, dir, pid, addr2)
+# cd.restore(bin, dir, pid)
+cd.restore_and_infect(bin, dir, pid, addr2)
 
 print('Parent process ends')
