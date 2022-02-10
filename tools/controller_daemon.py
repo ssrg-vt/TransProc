@@ -38,7 +38,6 @@ class ControllerDaemon:
         item = None
         while True:
             item = f()
-            print(item)
             if item:
                 break
             if i > 10:
@@ -102,6 +101,7 @@ class ControllerDaemon:
     def restore_and_infect(self, bin, cwd, pid, addr):
         attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
         self.restore(bin, cwd, pid)
+        pid2 = self.check_pid(bin)
         self._spawn_independent_subprocess([attach_pid, pid, addr], cwd=cwd)
 
 
