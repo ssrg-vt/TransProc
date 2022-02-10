@@ -88,7 +88,7 @@ def assert_conditions(dir, bin, tranproc):
 
 
 addr = "0x50146f"
-addr2 = "0x501052"
+addr2 = "0x50193f"
 dir = "/root/bt"
 bin = "bt"
 tranproc = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
