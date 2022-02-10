@@ -92,6 +92,11 @@ void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struc
 
 void continue_running(pid_t cpid)
 {
+    // Give sigcont to child
+    if (kill(cpid, SIGCONT) != 0)
+    {
+        perror("sigcont");
+    }
     // Let the child process continue running
     ptrace(PTRACE_CONT, cpid, 0, 0);
 }
