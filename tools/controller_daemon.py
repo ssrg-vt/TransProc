@@ -53,6 +53,36 @@ class ControllerDaemon:
             time.sleep(i*DELAY_PRECISION)
             i += 1
         return item
+    
+
+    def check_errors(self, cwd, bin):
+        errors = []
+        error = False
+        if not os.path.exists(os.path.join(cwd, bin)):
+            error |= True
+            errors.append("Binary %s does not exist in working directory" % bin)
+        if not os.path.exists(os.path.join(cwd, "Makefile")):
+            error |= True
+            errors.append("Makefile does not exist in working directory")
+        bin_dir = os.path.join(cwd, "bin/")
+        if not os.path.exists(bin_dir):
+            error |= True
+            errors.append("bin directory does not exist in working directory")
+        if not os.path.exists(os.path.join(bin_dir, bin+"_aarch64")):
+            error |= True
+            errors.append("Binary %s does not exist in bin directory" % bin+"_aarch64")
+        if not os.path.exists(os.path.join(bin_dir, bin+"_x86-64")):
+            error |= True
+            errors.append("Binary %s does not exist in bin directory" % bin+"_x86-64")
+        debugger = os.path.join(self.root_dir, "tools", "debugger")
+        if not os.path.exists(debugger):
+            error |= True
+            errors.append("debugger does not exist in project directory")
+        attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
+        if not os.path.exists(attach_pid):
+            error |= True
+            errors.append("attach_pid does not exist in working directory")
+        return (error, errors)
 
 
     def run(self, command, cwd):
@@ -128,18 +158,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# def assert_conditions(dir, bin, tranproc):
-#     assert os.path.exists(os.path.join(dir, bin))
-#     assert os.path.exists(os.path.join(dir, "Makefile"))
-#     bin_dir = os.path.join(dir, "bin/")
-#     assert os.path.exists(bin_dir)
-#     assert os.path.exists(os.path.join(bin_dir, bin+"_aarch64"))
-#     assert os.path.exists(os.path.join(bin_dir, bin+"_x86-64"))
-#     debugger = os.path.join(tranproc, "tools", "debugger")
-#     assert os.path.exists(debugger)
-#     attach_pid = os.path.join(tranproc, "tools", "attach_pid")
-#     assert os.path.exists(attach_pid)
 
 
 # addr = "0x50146f"

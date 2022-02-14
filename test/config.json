@@ -1,0 +1,44 @@
+{
+    "bin" : "bt",
+    "instructions" : {
+        "1" : {
+            "type" : "run",
+            "command" : "which python3",
+            "host" : "aarch64"
+        },
+        "2" : {
+            "type" : "run_and_infect",
+            "addr" : "0x50146f",
+            "host" : "x86-64"
+        },
+        "3" : {
+            "type" : "dump",
+            "host" : "x86-64"
+        },
+        "4" : {
+            "type" : "transform",
+            "host" : "x86-64",
+            "target" : "aarch64"
+        },
+        "5" : {
+            "type" : "restore",
+            "host" : "x86-64"
+        },
+        "6" : {
+            "type" : "restore_and_infect",
+            "addr" : "0x50193f",
+            "host" : "x86-64"
+        }
+    },
+    "execution" : [
+        {
+            "freq" : 1,
+            "sequence" : [
+                "2",
+                "3",
+                "4",
+                "5"
+            ]
+        }
+    ]
+}
