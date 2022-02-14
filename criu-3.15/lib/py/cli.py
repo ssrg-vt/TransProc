@@ -6,14 +6,17 @@ import argparse
 import sys
 import json
 import os
-
+import contextlib
 import pycriu
 
 from pycriu import stack_map_utils
 from pycriu import elf_utils
 from pycriu import utils
 from pycriu.converter import Aarch64Converter, X8664Converter
-
+from .utils import code_utils
+from .utils import stack_utils
+from .stackwalk import stack_ops
+from .codewalk import code_decode
 
 def inf(opts):
     if opts['in']:
@@ -30,10 +33,7 @@ def outf(opts):
 
 
 def dinf(opts, name, mode=None):
-    if not mode:
-        return open(os.path.join(opts['dir'], name))
-    else:
-        return open(os.path.join(opts['dir'], name), mode)
+    return open(os.path.join(opts['dir'], name), mode='rb')
 
 
 def edit(opts):
@@ -451,6 +451,8 @@ def dump_section_arch_live_vals(opts):
 def explore(opts):
     explorers[opts['what']](opts)
 
+def banner(str):
+    print('-' * len(str))
 
 sm_utils = {
     'dump_sm': dump_stackmap_data,
@@ -579,6 +581,89 @@ def vdso_init(opts):
     f.close()
 
 
+#
+# Examine code and stack
+#
+def examine_code(opts):
+    """ Function to dump disassembled code for user defined functions. The code is
+    read from the dumped code section in pages-%.img.
+    """
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    for p in ps_img['entries']:
+        pid = get_task_id(p, 'pid')
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        core = pycriu.images.load(
+                    dinf(opts, 'core-%d.img' % pid))
+        _, func_info = code_utils.get_code_region(mmi, pms, opts['exe'])
+        with contextlib.closing(code_decode.Disassemble(opts['exe'], arch = core['entries'][0]['mtype'])) as disasm:
+            for info in func_info:
+                str = "Function: {}".format(info["name"])
+                banner(str)
+                print(str)
+                banner(str)
+                disasm.disassemble_range(info['saddr']['exe_offset'], info['eaddr']['exe_offset'])
+
+
+def examine_stack(opts):
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    for p in ps_img['entries']:
+        pid = get_task_id(p, 'pid')
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']    
+        core = pycriu.images.load(
+                    dinf(opts, 'core-%d.img' % pid))
+        page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, 
+                                                                                            pms, 
+                                                                                            core , 
+                                                                                            opts['exe'])
+        _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
+        page_file = os.path.join(opts['dir'], page_file)         
+        with contextlib.closing(stack_ops.Stack(page_file,
+                                        ip,
+                                        sp,
+                                        offset_sp,
+                                        offset_bp,
+                                        func_info,
+                                        func_info_img,
+                                        path_exe = opts['exe'],
+                                        arch = core['entries'][0]['mtype'])) as swalk:          
+            swalk.view_all()
+
+
+examiners = {
+    'code': examine_code,
+    'stack': examine_stack
+}
+
+
+def examine(opts):
+    examiners[opts['what']](opts)
+
+
+def stack_shuffle(opts):
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    for p in ps_img['entries']:
+        pid = get_task_id(p, 'pid')
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']    
+        core = pycriu.images.load(
+                    dinf(opts, 'core-%d.img' % pid))
+        page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, pms, core, opts['exe'])
+        _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
+        page_file = os.path.join(opts['dir'], page_file)   
+        with contextlib.closing(stack_ops.Stack(page_file,
+                                                ip,
+                                                sp,
+                                                offset_sp,
+                                                offset_bp,
+                                                func_info,
+                                                func_info_img,
+                                                path_exe = opts['exe'],
+                                                arch = core['entries'][0]['mtype'])) as sshuffle:          
+            sshuffle.shuffle_all()
+			
+
 def main():
     desc = 'CRiu Image Tool'
     parser = argparse.ArgumentParser(
@@ -690,7 +775,33 @@ def main():
     recode_parser.add_argument('debug', help='run in debug mode(y/n)')
     recode_parser.set_defaults(func=recode)
     
+    # Examine
+    ex_parser = subparsers.add_parser('examine', help='examine disassembled code and stack frames')
+    ex_parser.add_argument('dir',
+                           help='directory containing criu dump images')
+    ex_parser.add_argument('exe',
+                           help='path to executable')
 
+    ex_parser.add_argument('what',
+                           choices=['code', 'stack'],
+                           help='option to examine code (raw/disassembled) or stack frames (raw/verbose)')
+    ex_parser.add_argument('-f',
+                           '--function',
+                           help='optional: examine code/stack for this function')
+    ex_parser.add_argument('-r',
+                           '--raw',
+                           help='optional: examine code/stack in raw or disassembled/verbose format',
+                           action='store_true')
+    ex_parser.set_defaults(func=examine)
+
+    # Stack shuffle
+    s_parser = subparsers.add_parser('ss', help='Shuffle stack')
+    s_parser.add_argument('dir',
+                           help='directory containing criu dump images')
+    s_parser.add_argument('exe',
+                           help='path to executable')
+    s_parser.set_defaults(func=stack_shuffle)
+	
     opts = vars(parser.parse_args())
 
     if not opts:
