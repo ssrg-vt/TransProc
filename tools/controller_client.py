@@ -75,12 +75,18 @@ def transform(server, bin, tgt, dir, debug = 'n'):
 
 
 def restore(server, bin, cwd):
-    server.restore(bin, cwd)
+    try:
+        server.restore(bin, cwd)
+    except Pyro4.errors.ConnectionClosedError as e:
+        print(e) #log it and move forward
     check_pid(server, bin)
 
 
 def restore_and_infect(server, bin, cwd, pid, addr):
-    server.restore_and_infect(bin, cwd, pid, addr)
+    try:
+        server.restore_and_infect(bin, cwd, pid, addr)
+    except Pyro4.errors.ConnectionClosedError as e:
+        print(e) #log it and move forward
     check_pid(server, bin)
 
 
