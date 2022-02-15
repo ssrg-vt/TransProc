@@ -36,7 +36,7 @@ def check_pid(server, bin):
             pid = server.check_pid(bin)
             return pid
         except Pyro4.errors.ConnectionClosedError as e:
-            if i > 10:
+            if i > 20:
                 print(e)
                 return None
             time.sleep(i * DELAY_PRECISION)
@@ -48,9 +48,10 @@ def check_killed(server, bin):
     while True:
         try:
             server.check_killed(bin)
+            break
         except Pyro4.errors.ConnectionClosedError as e:
-            if i > 10:
-                raise Exception("Problem was not killed")
+            if i > 20:
+                raise Exception("Process was not killed")
             time.sleep(i * DELAY_PRECISION)
             i += 1
 
@@ -61,7 +62,7 @@ def run(server, command, cwd):
 
 def run_and_infect(server, addr, bin, cwd):
     server.run_and_infect(addr, bin, cwd)
-    check_pid(server, bin)
+    return check_pid(server, bin)
 
 
 def dump(server, bin, pid, cwd):
@@ -95,18 +96,26 @@ def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, p
         raise Exception("Host mentioned in config file not supported!")
     if instr["type"] == RUN:
         run(server, instr["command"], cwd)
+        return (False, None)
     elif instr["type"] == RUN_AND_INFECT:
         pid = run_and_infect(server, instr["addr"], bin, cwd)
+        return (True, pid)
     elif instr["type"] == DUMP:
         if not pid:
             raise Exception("Need a PID with DUMP")
         dump(server, bin, pid, cwd)
+        return (False, None)
     elif instr["type"] == TRANSFORM:
         transform(server, bin, instr["target"], cwd)
+        return (False, None)
     elif instr["type"] == RESTORE:
         restore(server, bin, cwd)
+        return (False, None)
     elif instr["type"] == RESTORE_AND_INFECT:
+        if not pid:
+            raise Exception("Need a PID with RESTORE_AND_INFECT")
         restore_and_infect(server, bin, cwd, pid, instr["addr"])
+        return (False, None)
     else:
         raise Exception("Instruction type not defined")
 
@@ -156,7 +165,10 @@ def main(argv):
         while f(i):
             i += 1
             for seq in ex["sequence"]:
-                parse_instruction(seq, data["instructions"], x86_64_server, aarch64_server, cwd, bin, pid)
+                (ret, val) = parse_instruction(seq, data["instructions"], x86_64_server, aarch64_server, cwd, bin, pid)
+                if ret:
+                    pid = val
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
