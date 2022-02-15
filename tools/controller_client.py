@@ -1,11 +1,9 @@
 from audioop import add
 from distutils.debug import DEBUG
 import json
-from re import VERBOSE
 import sys
 import getopt
 import os
-from tabnanny import check
 import Pyro4
 import Pyro4.util
 import Pyro4.errors
@@ -20,8 +18,6 @@ X86_64_SERVER_NAME = "stack_pop.controller_daemon.x86_64"
 AARCH64_SERVER_NAME = "stack_pop.controller_daemon.aarch64"
 
 DELAY_PRECISION = 0.01
-
-VERBOSE = False
 
 """
 Instruct Modes:
@@ -78,6 +74,7 @@ def run_and_infect(server, addr, bin, cwd):
     verbose(sys._getframe().f_code.co_name, "%s is now halted" % bin)
     verbose(sys._getframe().f_code.co_name, "Addr is %s" % addr)
     verbose(sys._getframe().f_code.co_name, "PID is %s" % pid)
+    return pid
 
 
 def dump(server, bin, pid, cwd):
@@ -148,8 +145,10 @@ def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, p
 
 def main(argv):
     cwd = None
+    global VERBOSE
+    VERBOSE = False
     try:
-        opts, args = getopt.getopt(argv, "hd:v:")
+        opts, args = getopt.getopt(argv, "hd:v")
     except getopt.GetoptError:
         print("Incorrect usage. Usage: python3 controller_client.py -d <path_to_working_dir>")
         sys.exit(2)
