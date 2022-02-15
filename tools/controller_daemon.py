@@ -40,6 +40,10 @@ class ControllerDaemon:
         sys.exit(0)
 
 
+    """
+    - Do not use with Pyro. As serializing functions is not possible.
+    - Keeping it here for some possible future use.
+    """
     def _busy_wait(self, f=None):
         assert f, "No function provided to wait on"
         i = 1
@@ -95,24 +99,29 @@ class ControllerDaemon:
     
 
     def check_pid(self, bin):
-        def f():
+        i = 1
+        while True:
             try:
                 pid = subprocess.check_output(["pidof", bin], universal_newlines=True).strip()
                 return pid
             except:
-                return None
-        pid = self._busy_wait(f)
-        return pid
+                if i > 10:
+                    return None
+                time.sleep(i*DELAY_PRECISION)
+                i += 1
     
 
     def check_killed(self, bin):
-        def f():
+        i = 1
+        while True:
             try:
                 pid = subprocess.check_output(["pidof", bin], universal_newlines=True).strip()
-                return None
+                if i > 10:
+                    return None
+                time.sleep(i*DELAY_PRECISION)
+                i += 1
             except:
-                return "Killed"
-        state = self._busy_wait(f)
+                return "killed"
 
 
     def dump(self, pid, cwd):
@@ -134,11 +143,13 @@ class ControllerDaemon:
 
     def restore(self, bin, cwd):
         self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
+        pid = self.check_pid(bin)
+        self.sigcont(pid)
     
 
     def restore_and_infect(self, bin, cwd, pid, addr):
         attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
-        self.restore(bin, cwd)
+        self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
         pid2 = self.check_pid(bin)
         self._spawn_independent_subprocess([attach_pid, pid, addr], cwd=cwd)
 
