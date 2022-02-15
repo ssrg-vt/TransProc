@@ -2,8 +2,11 @@ import json
 import sys
 import getopt
 import os
+from tabnanny import check
 import Pyro4
 import Pyro4.util
+import Pyro4.errors
+import time
 
 X86_64 = "x86-64"
 AARCH64 = "aarch64"
@@ -12,6 +15,8 @@ CONFIG_FILE_NAME = "config.json"
 
 X86_64_SERVER_NAME = "stack_pop.controller_daemon.x86_64"
 AARCH64_SERVER_NAME = "stack_pop.controller_daemon.aarch64"
+
+DELAY_PRECISION = 0.01
 
 """
 Instruct Modes:
@@ -24,19 +29,44 @@ RESTORE = "restore"
 RESTORE_AND_INFECT = "restore_and_infect"
 
 
+def check_pid(server, bin):
+    i = 1
+    while True:
+        try:
+            pid = server.check_pid(bin)
+            return pid
+        except Pyro4.errors.ConnectionClosedError as e:
+            if i > 10:
+                print(e)
+                return None
+            time.sleep(i * DELAY_PRECISION)
+            i += 1
+
+
+def check_killed(server, bin):
+    i = 1
+    while True:
+        try:
+            server.check_killed(bin)
+        except Pyro4.errors.ConnectionClosedError as e:
+            if i > 10:
+                raise Exception("Problem was not killed")
+            time.sleep(i * DELAY_PRECISION)
+            i += 1
+
+
 def run(server, command, cwd):
     server.run(command, cwd)
 
 
 def run_and_infect(server, addr, bin, cwd):
     server.run_and_infect(addr, bin, cwd)
-    pid = server.check_pid(bin)
-    return pid
+    check_pid(server, bin)
 
 
 def dump(server, bin, pid, cwd):
     server.dump(pid, cwd)
-    server.check_killed(bin)
+    check_killed(server, bin)
 
 
 def transform(server, bin, tgt, dir, debug = 'n'):
@@ -45,12 +75,12 @@ def transform(server, bin, tgt, dir, debug = 'n'):
 
 def restore(server, bin, cwd):
     server.restore(bin, cwd)
-    server.check_pid(bin)
+    check_pid(server, bin)
 
 
 def restore_and_infect(server, bin, cwd, pid, addr):
     server.restore_and_infect(bin, cwd, pid, addr)
-    server.check_pid(bin)
+    check_pid(server, bin)
 
 
 def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, pid):
