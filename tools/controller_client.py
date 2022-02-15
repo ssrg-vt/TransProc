@@ -10,7 +10,7 @@ AARCH64 = "aarch64"
 
 CONFIG_FILE_NAME = "config.json"
 
-X86_64_SERVER_NAME = "stack_pop.controller_daemon.x86-64"
+X86_64_SERVER_NAME = "stack_pop.controller_daemon.x86_64"
 AARCH64_SERVER_NAME = "stack_pop.controller_daemon.aarch64"
 
 """
