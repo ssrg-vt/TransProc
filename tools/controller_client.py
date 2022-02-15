@@ -5,10 +5,23 @@ import os
 import Pyro4
 import Pyro4.util
 
+X86_64 = "x86-64"
+AARCH64 = "aarch64"
+
 CONFIG_FILE_NAME = "config.json"
 
 X86_64_SERVER_NAME = "stack_pop.controller_daemon.x86-64"
 AARCH64_SERVER_NAME = "stack_pop.controller_daemon.aarch64"
+
+"""
+Instruct Modes:
+"""
+RUN = "run"
+RUN_AND_INFECT = "run_and_infect"
+DUMP = "dump"
+TRANSFORM = "transform"
+RESTORE = "restore"
+RESTORE_AND_INFECT = "restore_and_infect"
 
 
 def run(server, command, cwd):
@@ -38,6 +51,34 @@ def restore(server, bin, cwd):
 def restore_and_infect(server, bin, cwd, pid, addr):
     server.restore_and_infect(bin, cwd, pid, addr)
     server.check_pid(bin)
+
+
+def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, pid):
+    if instr_id not in data:
+        raise Exception("Instruction id provided not defined")
+    instr = data[instr_id]
+    if instr["host"] == X86_64:
+        server = x86_64_server
+    elif instr["host"] == AARCH64:
+        server = aarch64_server
+    else:
+        raise Exception("Host mentioned in config file not supported!")
+    if instr["type"] == RUN:
+        run(server, instr["command"], cwd)
+    elif instr["type"] == RUN_AND_INFECT:
+        pid = run_and_infect(server, instr["addr"], bin, cwd)
+    elif instr["type"] == DUMP:
+        if not pid:
+            raise Exception("Need a PID with DUMP")
+        dump(server, bin, pid, cwd)
+    elif instr["type"] == TRANSFORM:
+        transform(server, bin, instr["target"], cwd)
+    elif instr["type"] == RESTORE:
+        restore(server, bin, cwd)
+    elif instr["type"] == RESTORE_AND_INFECT:
+        restore_and_infect(server, bin, cwd, pid, instr["addr"])
+    else:
+        raise Exception("Instruction type not defined")
 
 
 def main(argv):
@@ -70,6 +111,22 @@ def main(argv):
     x86_64_server = Pyro4.Proxy("PYRONAME:%s" % X86_64_SERVER_NAME)
     aarch64_server = Pyro4.Proxy("PYRONAME:%s" % AARCH64_SERVER_NAME)
 
+    pid = None
+
+    for ex in data["execution"]:
+        freq = ex["freq"]
+        i = 0
+        if freq < 0:
+            def f(i):
+                return True
+        else:
+            def f(i):
+                ret = i < freq
+                return ret
+        while f(i):
+            i += 1
+            for seq in ex["sequence"]:
+                parse_instruction(seq, data["instructions"], x86_64_server, aarch64_server, cwd, bin, pid)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
