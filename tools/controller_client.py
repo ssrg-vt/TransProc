@@ -1,4 +1,7 @@
+from audioop import add
+from distutils.debug import DEBUG
 import json
+from re import VERBOSE
 import sys
 import getopt
 import os
@@ -18,6 +21,8 @@ AARCH64_SERVER_NAME = "stack_pop.controller_daemon.aarch64"
 
 DELAY_PRECISION = 0.01
 
+VERBOSE = False
+
 """
 Instruct Modes:
 """
@@ -29,11 +34,17 @@ RESTORE = "restore"
 RESTORE_AND_INFECT = "restore_and_infect"
 
 
+def verbose(func_name, msg):
+    if VERBOSE:
+        print(func_name + ": " + msg)
+
+
 def check_pid(server, bin):
     i = 1
     while True:
         try:
             pid = server.check_pid(bin)
+            verbose(sys._getframe().f_code.co_name, "PID is %s" % pid)
             return pid
         except Pyro4.errors.ConnectionClosedError as e:
             if i > 20:
@@ -48,6 +59,7 @@ def check_killed(server, bin):
     while True:
         try:
             server.check_killed(bin)
+            verbose(sys._getframe().f_code.co_name, "%s is killed" % bin)
             break
         except Pyro4.errors.ConnectionClosedError as e:
             if i > 20:
@@ -62,12 +74,16 @@ def run(server, command, cwd):
 
 def run_and_infect(server, addr, bin, cwd):
     server.run_and_infect(addr, bin, cwd)
-    return check_pid(server, bin)
+    pid = check_pid(server, bin)
+    verbose(sys._getframe().f_code.co_name, "%s is now halted" % bin)
+    verbose(sys._getframe().f_code.co_name, "Addr is %s" % addr)
+    verbose(sys._getframe().f_code.co_name, "PID is %s" % pid)
 
 
 def dump(server, bin, pid, cwd):
     server.dump(pid, cwd)
     check_killed(server, bin)
+    verbose(sys._getframe().f_code.co_name, "%s is dumped" % bin)
 
 
 def transform(server, bin, tgt, dir, debug = 'n'):
@@ -80,6 +96,7 @@ def restore(server, bin, cwd):
     except Pyro4.errors.ConnectionClosedError as e:
         print(e) #log it and move forward
     check_pid(server, bin)
+    verbose(sys._getframe().f_code.co_name, "%s is restored" % bin)
 
 
 def restore_and_infect(server, bin, cwd, pid, addr):
@@ -88,6 +105,9 @@ def restore_and_infect(server, bin, cwd, pid, addr):
     except Pyro4.errors.ConnectionClosedError as e:
         print(e) #log it and move forward
     check_pid(server, bin)
+    verbose(sys._getframe().f_code.co_name, "%s is restored and infected" % pid)
+    verbose(sys._getframe().f_code.co_name, "Addr is %s" % addr)
+    verbose(sys._getframe().f_code.co_name, "PID is %s" % pid)
 
 
 def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, pid):
@@ -129,7 +149,7 @@ def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, p
 def main(argv):
     cwd = None
     try:
-        opts, args = getopt.getopt(argv, "hd:")
+        opts, args = getopt.getopt(argv, "hd:v:")
     except getopt.GetoptError:
         print("Incorrect usage. Usage: python3 controller_client.py -d <path_to_working_dir>")
         sys.exit(2)
@@ -139,6 +159,8 @@ def main(argv):
             sys.exit()
         elif opt == "-d":
             cwd = arg
+        elif opt == '-v':
+            VERBOSE = True
         else:
             print("Incorrect usage. Usage: python3 controller_client.py -d <path_to_working_dir>")
             sys.exit(2)
