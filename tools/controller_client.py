@@ -41,7 +41,14 @@ def check_pid(server, bin):
         try:
             pid = server.check_pid(bin)
             verbose(sys._getframe().f_code.co_name, "PID is %s" % pid)
-            return pid
+            if pid:
+                return pid
+            else:
+                if i > 20:
+                    verbose(sys._getframe().f_code.co_name, "Could not get pid for %s" % bin)
+                    return None
+                time.sleep(i * DELAY_PRECISION)
+                i += 1
         except Pyro4.errors.ConnectionClosedError as e:
             if i > 20:
                 print(e)
