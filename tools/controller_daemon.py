@@ -43,6 +43,7 @@ class ControllerDaemon:
 
     def _spawn_dependent_subprocess(self, args, cwd=None):
         proc = subprocess.Popen(args, cwd=cwd, universal_newlines=True)
+        proc.wait()
 
 
     """
@@ -182,23 +183,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# addr = "0x50146f"
-# addr2 = "0x50193f"
-# dir = "/root/bt"
-# bin = "bt"
-# tranproc = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-# # assert_conditions(dir, bin, tranproc)
-# cd = ControllerDaemon()
-# # cd.run(os.path.join(dir, bin), dir)
-# cd.run_and_infect(addr, bin, dir)
-# pid = cd.check_pid(bin)
-# cd.dump(pid, dir)
-# cd.check_killed(bin)
-# cd.transform(bin, "aarch64", dir)
-# # cd.restore(bin, dir, pid)
-# cd.restore_and_infect(bin, dir, pid, addr2)
-
-# print('Parent process ends')
