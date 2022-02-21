@@ -3,7 +3,7 @@ Transform the CRIU image between different architectures for vanilla code.
 
 ## Dependencies
 - all criu dependencies listed here: https://criu.org/Installation
-- python: pyelftools, jsonpath-ng, pyro4
+- python: pyelftools, jsonpath-ng, pyro4, psutil
 
 ## How to run a provided test
 The TranProc util is tested for a SNU-NPB serial benchmarks  migrated from x86-64 to aarch64.

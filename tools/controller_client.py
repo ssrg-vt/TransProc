@@ -86,7 +86,7 @@ def run_and_infect(server, addr, bin, cwd):
 
 def dump(server, bin, pid, cwd):
     server.dump(pid, cwd)
-    check_killed(server, bin)
+    # check_killed(server, bin)
     verbose(sys._getframe().f_code.co_name, "%s is dumped" % bin)
 
 

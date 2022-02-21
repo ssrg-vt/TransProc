@@ -1,10 +1,10 @@
-import getopt
 import subprocess
 import os
 import sys
 import time
 import Pyro4
 import platform
+import psutil
 
 
 DELAY_PRECISION = 0.01
@@ -30,6 +30,7 @@ class ControllerDaemon:
                 return
         except OSError as e:
             print("fork failed: %d, (%s)" % e.errno, e.strerror)
+            return
         
         # execution from here is only continued by the child process
         # spawn the subprocess and exit
@@ -38,6 +39,10 @@ class ControllerDaemon:
                             universal_newlines=True,
                             preexec_fn=os.setpgrp)
         sys.exit(0)
+
+
+    def _spawn_dependent_subprocess(self, args, cwd=None):
+        proc = subprocess.Popen(args, cwd=cwd, universal_newlines=True)
 
 
     """
@@ -101,10 +106,10 @@ class ControllerDaemon:
     def check_pid(self, bin):
         i = 1
         while True:
-            try:
-                pid = subprocess.check_output(["pidof", bin], universal_newlines=True).strip()
-                return pid
-            except:
+            pid = [p.pid for p in psutil.process_iter() if p.name() == bin]
+            if pid: 
+                return str(pid[0])
+            else:
                 if i > 10:
                     return None
                 time.sleep(i*DELAY_PRECISION)
@@ -114,23 +119,31 @@ class ControllerDaemon:
     def check_killed(self, bin):
         i = 1
         while True:
-            try:
-                pid = subprocess.check_output(["pidof", bin], universal_newlines=True).strip()
+            pid = [p.pid for p in psutil.process_iter() if p.name() == bin]
+            if pid:
                 if i > 10:
                     return None
                 time.sleep(i*DELAY_PRECISION)
                 i += 1
-            except:
+            else:
                 return "killed"
 
 
     def dump(self, pid, cwd):
-        self._spawn_independent_subprocess(["make", "PID=%s" % pid, "dump"], cwd=cwd)
+        proc = psutil.Process(int(pid))
+        i = 1
+        while True:
+            if proc.status() != psutil.STATUS_STOPPED:
+                time.sleep(i*DELAY_PRECISION)
+                i += 10
+            else:
+                break
+        self._spawn_dependent_subprocess(["make", "PID=%s" % pid, "dump"], cwd=cwd)
     
 
     def transform(self, bin, tgt, dir, debug='n'):
         bin_dir = os.path.join(dir, "bin/")    
-        self._spawn_independent_subprocess(
+        self._spawn_dependent_subprocess(
             [
              "make", 
              "BIN=%s" % bin, 
