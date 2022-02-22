@@ -38,7 +38,7 @@ class ControllerDaemon:
             if pid2 > 0:
                 #exit from here to continue daemon's execution. 
                 #pid of the child will be waited on by init process.
-                sys.exit(0)
+                os._exit(0)
         except OSError as e:
             print("fork 2 failed: %d, (%S)" % e.errno, e.strerror)
         
@@ -48,7 +48,7 @@ class ControllerDaemon:
                             universal_newlines=True,
                             preexec_fn=os.setpgrp)
         proc.wait()
-        sys.exit(0)
+        os._exit(0)
 
 
     def _spawn_dependent_subprocess(self, args, cwd=None):
@@ -180,6 +180,7 @@ class ControllerDaemon:
         attach_pid = os.path.join(self.root_dir, "tools", "attach_pid")
         self._spawn_independent_subprocess(["make", "BIN=%s" % bin, "restore"], cwd=cwd)
         pid2 = self.check_pid(bin)
+        time.sleep(1) #TODO: figure out a better logic
         self._spawn_independent_subprocess([attach_pid, pid, addr], cwd=cwd)
 
 
