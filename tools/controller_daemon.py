@@ -27,17 +27,27 @@ class ControllerDaemon:
             pid = os.fork()
             if pid > 0:
                 #parent process, return and continue execution.
+                os.waitpid(pid, 0)
                 return
         except OSError as e:
             print("fork failed: %d, (%s)" % e.errno, e.strerror)
             return
         
-        # execution from here is only continued by the child process
-        # spawn the subprocess and exit
+        try:
+            pid2 = os.fork()
+            if pid2 > 0:
+                #exit from here to continue daemon's execution. 
+                #pid of the child will be waited on by init process.
+                sys.exit(0)
+        except OSError as e:
+            print("fork 2 failed: %d, (%S)" % e.errno, e.strerror)
+        
+        # spawn the subprocess, wait on it, then exit.
         proc = subprocess.Popen(args,
                             cwd=cwd,
                             universal_newlines=True,
                             preexec_fn=os.setpgrp)
+        proc.wait()
         sys.exit(0)
 
 
@@ -131,14 +141,19 @@ class ControllerDaemon:
 
 
     def dump(self, pid, cwd):
-        proc = psutil.Process(int(pid))
         i = 1
+        p = int(pid)
         while True:
-            if proc.status() != psutil.STATUS_STOPPED:
+            try:
+                proc = psutil.Process(p)
+                if proc.status() != psutil.STATUS_STOPPED:
+                    time.sleep(i*DELAY_PRECISION)
+                    i += 10
+                else:
+                    break
+            except psutil.NoSuchProcess:
                 time.sleep(i*DELAY_PRECISION)
                 i += 10
-            else:
-                break
         self._spawn_dependent_subprocess(["make", "PID=%s" % pid, "dump"], cwd=cwd)
     
 
