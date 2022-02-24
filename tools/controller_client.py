@@ -1,6 +1,7 @@
 from audioop import add
 from distutils.debug import DEBUG
 import json
+from re import X
 import sys
 import getopt
 import os
@@ -165,7 +166,12 @@ def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, p
         restore_and_infect(server.server, bin, cwd, pid, instr["addr"])
         return (False, None)
     elif instr["type"] == COPY_TO_TARGET:
-        copy_to_target(server.server, server.user, server.ip, cwd, instr["target"])
+        if instr["target"] == X86_64:
+            copy_to_target(server.server, x86_64_server.user ,x86_64_server.ip, cwd, instr["target"])
+        elif instr["target"] == AARCH64:
+            copy_to_target(server.server, aarch64_server.user, aarch64_server.ip, cwd, instr["target"])
+        else:
+            raise Exception("Cannot identify target type")
         return (False, None)
     else:
         raise Exception("Instruction type not defined")
@@ -215,7 +221,7 @@ def main(argv):
             print(errors)
             os._exit(0)
     except Exception as e:
-        print("%s server not reachable", X86_64)
+        print("%s server not reachable" % X86_64)
         print(e)
 
     try:
@@ -225,7 +231,7 @@ def main(argv):
             print(errors)
             os._exit(0)
     except Exception as e:
-        print("%s server not reachable", AARCH64)
+        print("%s server not reachable" % AARCH64)
         print(e)
 
     pid = None
