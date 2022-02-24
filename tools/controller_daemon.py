@@ -1,6 +1,7 @@
 import subprocess
 import os
-import sys
+from paramiko import SSHClient
+from scp import SCPClient
 import time
 import Pyro4
 import platform
@@ -53,7 +54,8 @@ class ControllerDaemon:
 
     def _spawn_dependent_subprocess(self, args, cwd=None):
         proc = subprocess.Popen(args, cwd=cwd, universal_newlines=True)
-        proc.wait()
+        ret_code = proc.wait()
+        return ret_code
 
 
     """
@@ -186,6 +188,35 @@ class ControllerDaemon:
 
     def sigcont(self, pid):
         self._spawn_independent_subprocess(["kill", "-SIGCONT", "%s" % pid])
+
+
+    """
+    Arguments:
+    user: User id of the target.
+    host: Ip address of the target.
+    dir: Directory in the target to copy to.
+    cwd: Current working directory.
+    """
+    def copy_to_tgt(self, user, host, dir, cwd, tgt='aarch64'):
+        tgt_img_dir = os.path.join(cwd, tgt) #dir in src containing transformed img files.=
+        files = [os.path.join(tgt_img_dir, f) for f in os.listdir(tgt_img_dir)]
+        ssh = SSHClient()
+        ssh.load_system_host_keys()
+        ssh.connect(host, username=user)
+
+        # SCPCLient takes a paramiko transport as an argument
+        scp = SCPClient(ssh.get_transport())
+
+        # Uploading the 'test' directory with its content in the
+        # '/home/user/dump' remote directory
+        scp.put(files, remote_path=dir)
+
+        scp.close()
+
+
+    def check_and_create_dir(self, dir_path):
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
 
 
 def main():
