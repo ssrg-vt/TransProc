@@ -28,6 +28,16 @@ DUMP = "dump"
 TRANSFORM = "transform"
 RESTORE = "restore"
 RESTORE_AND_INFECT = "restore_and_infect"
+COPY_TO_TARGET = "copy_to_target"
+
+
+class Server:
+    def __init__(self, ip, user, hostname, arch):
+        self.arch = arch
+        self.user = user
+        self.ip = ip
+        self.hostname = hostname
+        self.server = Pyro4.Proxy("PYRONAME:%s" % hostname)
 
 
 def verbose(func_name, msg):
@@ -114,6 +124,14 @@ def restore_and_infect(server, bin, cwd, pid, addr):
     verbose(sys._getframe().f_code.co_name, "PID is %s" % pid)
 
 
+def copy_to_target(server, user, host, cwd, tgt):
+    try:
+        server.copy_to_tgt(user, host, cwd, cwd, tgt)
+    except Pyro4.errors.ConnectionClosedError as e:
+        print(e) #log it and move forward
+    verbose(sys._getframe().f_code.co_name, "Copied files to target %s" % tgt)
+
+
 def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, pid):
     if instr_id not in data:
         raise Exception("Instruction id provided not defined")
@@ -125,26 +143,29 @@ def parse_instruction(instr_id, data, x86_64_server, aarch64_server, cwd, bin, p
     else:
         raise Exception("Host mentioned in config file not supported!")
     if instr["type"] == RUN:
-        run(server, instr["command"], cwd)
+        run(server.server, instr["command"], cwd)
         return (False, None)
     elif instr["type"] == RUN_AND_INFECT:
-        pid = run_and_infect(server, instr["addr"], bin, cwd)
+        pid = run_and_infect(server.server, instr["addr"], bin, cwd)
         return (True, pid)
     elif instr["type"] == DUMP:
         if not pid:
             raise Exception("Need a PID with DUMP")
-        dump(server, bin, pid, cwd)
+        dump(server.server, bin, pid, cwd)
         return (False, None)
     elif instr["type"] == TRANSFORM:
-        transform(server, bin, instr["target"], cwd)
+        transform(server.server, bin, instr["target"], cwd)
         return (False, None)
     elif instr["type"] == RESTORE:
-        restore(server, bin, cwd)
+        restore(server.server, bin, cwd)
         return (False, None)
     elif instr["type"] == RESTORE_AND_INFECT:
         if not pid:
             raise Exception("Need a PID with RESTORE_AND_INFECT")
-        restore_and_infect(server, bin, cwd, pid, instr["addr"])
+        restore_and_infect(server.server, bin, cwd, pid, instr["addr"])
+        return (False, None)
+    elif instr["type"] == COPY_TO_TARGET:
+        copy_to_target(server.server, server.user, server.ip, cwd, instr["target"])
         return (False, None)
     else:
         raise Exception("Instruction type not defined")
@@ -181,8 +202,31 @@ def main(argv):
     
     bin = data["bin"]
 
-    x86_64_server = Pyro4.Proxy("PYRONAME:%s" % X86_64_SERVER_NAME)
-    aarch64_server = Pyro4.Proxy("PYRONAME:%s" % AARCH64_SERVER_NAME)
+    x86_data = data["hosts"][X86_64]
+    x86_64_server = Server(x86_data["ip"], x86_data["user"], x86_data["hostname"], X86_64)
+
+    aarch64_data = data["hosts"][AARCH64]
+    aarch64_server = Server(aarch64_data["ip"], aarch64_data["user"],aarch64_data["hostname"], AARCH64)
+
+    try:
+        (error, errors) = x86_64_server.server.check_errors(cwd, bin)
+        if error:
+            print("Following errors in %s server" % X86_64)
+            print(errors)
+            os._exit(0)
+    except Exception as e:
+        print("%s server not reachable", X86_64)
+        print(e)
+
+    try:
+        (error, errors) = aarch64_server.server.check_errors(cwd, bin)
+        if error:
+            print("Following errors in %s server" % AARCH64)
+            print(errors)
+            os._exit(0)
+    except Exception as e:
+        print("%s server not reachable", AARCH64)
+        print(e)
 
     pid = None
 
