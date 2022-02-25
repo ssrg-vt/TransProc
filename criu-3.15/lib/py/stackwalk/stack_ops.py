@@ -406,18 +406,17 @@ class Stack:
         """ Shuffle all stack frames in the criu dump. 
         """
         shuffled_frames = dict()
-        # TODO: Skipping top_frame shuffle is causing segfault in ft and mg NPB serial
-        # benchmark. Fix this and consider top_frame for shuffling.
-        top_frame = None
         for frame in self.iterate_frame():
             # If stack frame previously shuffled, then do not update code but shuffle
             # only the stack frame. Used for recursive functions.
-            if top_frame is None:
-                top_frame = frame
             if frame.func_name in shuffled_frames.keys():
                 frame.update_frame(shuffled_frames[frame.func_name])
             else:
                 info = frame.shuffle_frame()                    
                 if info is not None:
                     shuffled_frames.update(info)
+
+        return shuffled_frames
+
+        
 

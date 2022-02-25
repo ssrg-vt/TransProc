@@ -1,6 +1,7 @@
 from __future__ import print_function
 import struct
 from jsonpath_ng import parse
+from elftools.elf.elffile import ELFFile
 
 import argparse
 import sys
@@ -8,6 +9,7 @@ import json
 import os
 import contextlib
 import pycriu
+import mmap
 
 from pycriu import stack_map_utils
 from pycriu import elf_utils
@@ -384,7 +386,7 @@ def dump_stackmap_data(opts):
     section = elf_utils.get_elf_section(
         elffile, stack_map_utils.STACKMAP_SECTION)
     print("Reading section: " + section.name)
-    stack_maps = stack_map_utils.parse_stack_maps(section)
+    stack_maps, _ = stack_map_utils.parse_stack_maps(section)
     stack_map_utils.print_stack_map_data(stack_maps)
 
 
@@ -661,8 +663,40 @@ def stack_shuffle(opts):
                                                 func_info_img,
                                                 path_exe = opts['exe'],
                                                 arch = core['entries'][0]['mtype'])) as sshuffle:          
-            sshuffle.shuffle_all()
-			
+            shuffled_info = sshuffle.shuffle_all()        
+
+        func_info = elf_utils.find_functions(opts['exe'])
+        with open(opts['exe'], 'r+b') as f:
+            elffile = ELFFile(f)
+            section = elf_utils.get_elf_section(
+                elffile, stack_map_utils.STACKMAP_SECTION)
+            _, sm_info = stack_map_utils.parse_stack_maps(section, core['entries'][0]['mtype'])
+            sm_base = section['sh_offset']
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
+                try:
+                    mv = memoryview(mm).cast('B')
+                    for name, stack_offset in shuffled_info.items():
+                        for info in func_info:
+                            if info['name'] == name:
+                                func_address = info['saddr']['exe_offset']
+                                break
+
+                        for source_offset, (dest_offset, _) in stack_offset.items():
+                            if core['entries'][0]['mtype'] == 'X86_64':
+                                if source_offset in sm_info[func_address]['stack_offsets'].keys():
+                                    sm_offsets = sm_info[func_address]['stack_offsets'][source_offset]
+                                    for sm_offset in sm_offsets:
+                                        mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = dest_offset
+                            else:
+                                tsource_offset = source_offset - (sm_info[func_address]['stack_size'] - 0x10)
+                                tdest_offset = dest_offset - (sm_info[func_address]['stack_size'] - 0x10)
+                                if tsource_offset in sm_info[func_address]['stack_offsets'].keys():
+                                    sm_offsets = sm_info[func_address]['stack_offsets'][tsource_offset]
+                                    for sm_offset in sm_offsets:
+                                        mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = tdest_offset
+                finally:
+                    del mv                     
+
 
 def main():
     desc = 'CRiu Image Tool'
