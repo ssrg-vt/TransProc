@@ -253,7 +253,7 @@ def parse_unwind_locs(section, dump = False):
 def parse_live_values(section, num_live_vals, dump = False):
     assert section.name == LIVE_VALUE_SECTION
     buffer = section.data()
-    live_vals = _parse_live_values(buffer, 0, num_live_vals, 0)
+    live_vals, _ = _parse_live_values(buffer, 0, num_live_vals, 0)
     if dump:
         for l in live_vals:
             l.print_val()
