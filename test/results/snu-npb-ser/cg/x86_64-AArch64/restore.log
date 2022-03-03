@@ -1,0 +1,61 @@
+Destination node is not available!
+
+   iteration           ||r||                 zeta
+        1       1.35593142916122E-13     9.9986441579140
+Destination node is not available!
+Destination node is not available!
+        2       2.09680228758112E-15     8.5733279203222
+Destination node is not available!
+Destination node is not available!
+        3       2.12201395307039E-15     8.5954510374058
+Destination node is not available!
+Destination node is not available!
+        4       1.92649954372501E-15     8.5969972340737
+Destination node is not available!
+Destination node is not available!
+        5       1.91498672651146E-15     8.5971549151767
+Destination node is not available!
+Destination node is not available!
+        6       2.02653471501963E-15     8.5971744311608
+Destination node is not available!
+Destination node is not available!
+        7       1.88965047355730E-15     8.5971770704913
+Destination node is not available!
+Destination node is not available!
+        8       1.97578335517621E-15     8.5971774440630
+Destination node is not available!
+Destination node is not available!
+        9       2.04443457405903E-15     8.5971774983942
+Destination node is not available!
+Destination node is not available!
+       10       1.86599240494722E-15     8.5971775064409
+Destination node is not available!
+Destination node is not available!
+       11       1.82467679229453E-15     8.5971775076486
+Destination node is not available!
+Destination node is not available!
+       12       1.97521034018698E-15     8.5971775078318
+Destination node is not available!
+Destination node is not available!
+       13       1.91118246534362E-15     8.5971775078598
+Destination node is not available!
+Destination node is not available!
+       14       1.84216619477009E-15     8.5971775078641
+Destination node is not available!
+Destination node is not available!
+       15       1.81459990880741E-15     8.5971775078648
+ Benchmark completed
+ VERIFICATION SUCCESSFUL
+ Zeta is     8.5971775078648E+00
+ Error is    1.0331046659065E-15
+
+
+ CG Benchmark Completed.
+ Class           =                        S
+ Size            =                     1400
+ Iterations      =                       15
+ Time in seconds =                  4015.34
+ Mop/s total     =                     0.02
+ Operation type  =           floating point
+ Verification    =               SUCCESSFUL
+ Version         =                    3.3.1

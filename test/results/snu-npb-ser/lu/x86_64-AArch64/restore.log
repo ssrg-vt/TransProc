@@ -1,0 +1,56 @@
+ NAS Parallel Benchmarks (NPB3.3-SER-C) - LU Benchmark
+
+ Size:   12x  12x  12
+ Iterations:   50
+
+ Time step    1
+ Time step   20
+ Time step   40
+ Time step   50
+Destination node is not available!
+
+ Verification being performed for class S
+ Accuracy setting for epsilon =  1.0000000000000E-08
+ Comparison of RMS-norms of residual
+           1   1.6196343210978E-02 1.6196343210977E-02 8.8041027451588E-14
+           2   2.1976745164824E-03 2.1976745164821E-03 1.2886057754655E-13
+           3   1.5179927653395E-03 1.5179927653399E-03 3.0026400897295E-13
+           4   1.5029584436013E-03 1.5029584435994E-03 1.2375972569551E-12
+           5   3.4264073155897E-02 3.4264073155896E-02 1.3770831719827E-14
+ Comparison of RMS-norms of solution error
+           1   6.4223319957955E-04 6.4223319957961E-04 8.9304469096313E-14
+           2   8.4144342047351E-05 8.4144342047348E-05 3.7849768673502E-14
+           3   5.8588269616504E-05 5.8588269616485E-05 3.2303572536515E-13
+           4   5.8474222595145E-05 5.8474222595157E-05 2.0870821641416E-13
+           5   1.3103347914112E-03 1.3103347914111E-03 5.5106424068747E-14
+ Comparison of surface integral
+               7.8418928865937E+00 7.8418928865937E+00 1.1326071811291E-16
+ Verification Successful
+
+
+ LU Benchmark Completed.
+ Class           =                        S
+ Size            =             12x  12x  12
+ Iterations      =                       50
+ Time in seconds =                     1.35
+ Mop/s total     =                    75.91
+ Operation type  =           floating point
+ Verification    =               SUCCESSFUL
+ Version         =                    3.3.1
+ Compile date    =              03 Nov 2017
+
+ Compile options:
+    CC           = gcc
+    CLINK        = $(CC)
+    C_LIB        = -lm
+    C_INC        = -I../common
+    CFLAGS       = -g -Wall -O3 -mcmodel=medium
+    CLINKFLAGS   = -O3 -mcmodel=medium
+    RAND         = (none)
+
+--------------------------------------
+ Please send all errors/feedbacks to:
+ Center for Manycore Programming
+ cmp@aces.snu.ac.kr
+ http://aces.snu.ac.kr
+--------------------------------------

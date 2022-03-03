@@ -1,0 +1,20 @@
+Verification test for FT successful
+
+
+ FT Benchmark Completed.
+ Class           =                        S
+ Size            =             64x  64x  64
+ Iterations      =                        6
+ Time in seconds =                  3465.73
+ Mop/s total     =                     0.05
+ Operation type  =           floating point
+ Verification    =               SUCCESSFUL
+ Version         =                   (null)
+ Compile date    =              -I../common
+
+ Compile options:
+    CC           = randdp
+    CLINK        = (null)
+    C_LIB        = -g -Wall -O3 -mcmodel=medium
+    C_INC        = 03 Nov 2017
+    CFLAGS       = -lm
