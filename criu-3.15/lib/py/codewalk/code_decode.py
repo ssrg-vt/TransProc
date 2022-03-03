@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pprint import pprint as pp
 from elftools.elf.elffile import ELFFile
 from capstone import *
@@ -130,9 +131,20 @@ class Disassemble:
                                                         opr[0].reg <= ARM64_REG_W30 else 0x8
                             if len(inst.operands) == 3:
                                  inst_info['size'] *= 2
-                            info.append(inst_info)                                                        
-                
-        return info
+                            info.append(inst_info)
+
+        # filter those stack_offsets which have both Qword and Dword inst references.
+        # certain runs of SNU cg fails without this filter
+        # TODO: Exclude this filter for increased entropy                                                  
+        offset_size = defaultdict(lambda: [0])
+        for stack_info in info:
+            if offset_size[stack_info['stack_offset']][-1] != stack_info['size']:
+                offset_size[stack_info['stack_offset']].append(stack_info['size'])
+        
+        rem_offset = [stack_offset for stack_offset, size in offset_size.items() if len(size) > 2]
+        info_filtered = [finfo for finfo in info if finfo['stack_offset'] not in rem_offset]
+
+        return info_filtered
 
     def update_code_page(**kwargs):
         if kwargs['arch'] == 'X86_64':
