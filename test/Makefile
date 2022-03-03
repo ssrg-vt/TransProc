@@ -4,7 +4,7 @@ TRANPROC := /root/TranProc
 
 CRIU := $(TRANPROC)/criu-3.15/criu/criu
 CRIT := $(TRANPROC)/criu-3.15/crit/crit
-
+PYTHON := $(shell which python3)
 CURR := $(shell pwd)
 
 BINDIR := $(CURR)/bin
@@ -20,7 +20,18 @@ dump:
 	$(CRIU) dump -vvv -o dump.log -t $(PID) --shell-job && echo OK
 
 transform:
-	$(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
+	$(PYTHON) $(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
+
+shuffle:
+	$(PYTHON) $(CRIT) examine $(CURR) $(BIN) code > code.beforeshuffle
+	$(PYTHON) $(CRIT) examine $(CURR) $(BIN) stack > stack.beforeshuffle
+	$(PYTHON) $(CRIT) elf $(CURR) dump_sm $(BIN) > stackmap.beforeshuffle
+
+	$(PYTHON) $(CRIT) ss $(CURR) $(BIN)
+
+	$(PYTHON) $(CRIT) examine $(CURR) $(BIN) code > code.aftershuffle
+	$(PYTHON) $(CRIT) examine $(CURR) $(BIN) stack > stack.aftershuffle
+	$(PYTHON) $(CRIT) elf $(CURR) dump_sm $(BIN) > stackmap.aftershuffle	
 
 restore:
 	chmod +x $(BIN)

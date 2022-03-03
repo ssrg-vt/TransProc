@@ -32,5 +32,6 @@ the variables with approproate values.
 - Copy all of these files on the destination host. Please make sure that `pwd` command yields the same output on source
 and destination hosts where the files are placed. 
 - Also copy the Makefile on the destination directory and edit all appropriate variables.
+- Run `make shuffle` to shuffle the stack frames and update the code pages accordingly. 
 - Run `make restore` to restore the application on destination.
 - From a seperate shell terminal on the destination, run `kill -SIGCONT $PID` where $PID is the pid of the restored binary. 

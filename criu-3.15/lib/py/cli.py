@@ -819,13 +819,6 @@ def main():
     ex_parser.add_argument('what',
                            choices=['code', 'stack'],
                            help='option to examine code (raw/disassembled) or stack frames (raw/verbose)')
-    ex_parser.add_argument('-f',
-                           '--function',
-                           help='optional: examine code/stack for this function')
-    ex_parser.add_argument('-r',
-                           '--raw',
-                           help='optional: examine code/stack in raw or disassembled/verbose format',
-                           action='store_true')
     ex_parser.set_defaults(func=examine)
 
     # Stack shuffle
