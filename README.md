@@ -1,9 +1,49 @@
 # TranProc
 Transform the CRIU image between different architectures for vanilla code.
 
-## Dependencies
-- all criu dependencies listed here: https://criu.org/Installation
-- python: pyelftools, jsonpath-ng, pyro4, psutil, scp
+## Build TransProc from source
+### Prepare the build environment
+You need to have an `x86_64` machine and an `arm64` machine. It's highly recommended that the two machines have the same OS distribution (e.g., Ubuntu 20.04). You can use either [QEMU](https://www.qemu.org/) VMs with [Ubuntu cloud images](https://cloud-images.ubuntu.com/releases/focal/release/), or your laptop with a [Raspberry Pi](https://www.raspberrypi.com/products/raspberry-pi-4-model-b/).
+
+Download the TransProc source code and ensure the source code is in the **same location** on each machine node.
+For example, on the Raspberry Pi 4:
+```
+❯ uname -a
+Linux ubuntu 5.4.0-1052-raspi #58-Ubuntu SMP PREEMPT Mon Feb 7 16:52:35 UTC 2022 aarch64 aarch64 aarch64 GNU/Linux
+❯ pwd
+/home/ubuntu
+❯ git clone https://github.com/ssrg-vt/TranProc.git
+```
+
+On the x86 laptop or VM:
+```
+❯ uname -a
+Linux x86 5.2.21+ #1 SMP Tue Sep 14 03:36:42 EDT 2021 x86_64 x86_64 x86_64 GNU/Linux
+❯ pwd
+/home/ubuntu
+❯ git clone https://github.com/ssrg-vt/TranProc.git
+```
+
+### Install the prerequisites and build CRIU/CRIT binaries
+On each node, you need to install the required package first. You can refer to the [criu project page](https://criu.org/Installation) for detail information. Here is an example of the packages needed for Ubuntu 20.04:
+```
+sudo apt install -y libprotobuf-dev libprotobuf-c-dev protobuf-c-compiler protobuf-compiler python-protobuf pkg-config libnl-3-dev libnet-dev libcap-dev libbsd-dev
+```
+Build `criu-3.15` and tools for inserting a breakpoint (code migration point):
+```
+❯ pwd
+/home/ubuntu/TranProc
+❯ make -C criu-3.15/
+❯ make -C tools/ local-build
+```
+After this step, you should have CRIU/CRIT binaries generated:
+```
+❯ find . -type f \( -name criu -o -name crit \)
+./criu-3.15/crit/crit
+./criu-3.15/criu/criu
+❯ ls tools
+attach_pid  debugger  ...
+```
 
 ## How to run a provided test
 The TranProc util is tested for a SNU-NPB serial benchmarks  migrated from x86-64 to aarch64.
@@ -11,7 +51,7 @@ The test binary is placed inside the test/SNU_NPB_SER_C directory. These tests a
 compiled for x86-64 and aarch64 with the popcorn compiler.
 Before recreating the test, please make sure the following things are in place:
 - Both source and destination hosts should have the same cgroups.
-- ASLR should be disabled on both the hosts. To disable ASLR run `echo 0 | sudo tee /proc/sys/kernel/randomiza_va_space`.
+- ASLR should be disabled on both the hosts. To disable ASLR run `echo 0 | sudo tee /proc/sys/kernel/randomize_va_space`.
 - The restore location `pwd` command should yield the same output for both source and destination hosts
 where you will be checkpointing and restoring the binaries. 
 - Place the x86-64 version of the file and the aarch64 version of the file in the bin directory within the directory where you
