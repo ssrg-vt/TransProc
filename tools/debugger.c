@@ -7,7 +7,9 @@
 #include <sys/ptrace.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#ifdef __x86_64__
 #include <sys/reg.h>
+#endif
 #include <sys/user.h>
 #include <unistd.h>
 #include <errno.h>
@@ -38,21 +40,25 @@ void run_target(const char *programname)
 
 void get_regs(pid_t cpid, struct user_regs_struct *regs)
 {
+#ifdef __x86_64__
     ptrace(PTRACE_GETREGS, cpid, 0, regs);
+#endif
+#ifdef __aarch64__
+    ptrace(PTRACE_GETREGSET, cpid, 0, regs);
+#endif
 }
 
 unsigned long set_breakpoint(pid_t cpid, unsigned long addr)
 {
-    // unsigned long addr = 0x00501031;
     unsigned long data = ptrace(PTRACE_PEEKTEXT, cpid, (void *)addr, 0);
 
     // Write the trap instruction
-    #ifdef __aarch64__
+#ifdef __aarch64__
         unsigned long trap = 0xd4200000;
-    #endif
-    #ifdef __x86_64__
+#endif
+#ifdef __x86_64__
         unsigned long trap = (data & 0xFFFFFF00) | 0xCC;
-    #endif
+#endif
     ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)trap);
 
     return data;
@@ -73,13 +79,14 @@ void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struc
      * let the CPU execute the original instruction.
      */
     ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)data);
-    #ifdef __aarch64__
+#ifdef __aarch64__
         regs->pc -= 1;
-    #endif
-    #ifdef __x86_64__
+	ptrace(PTRACE_SETREGSET, cpid, 0, regs);
+#endif
+#ifdef __x86_64__
         regs->rip -= 1;
-    #endif
-    ptrace(PTRACE_SETREGS, cpid, 0, regs);
+	ptrace(PTRACE_SETREGS, cpid, 0, regs);
+#endif
 }
 
 void continue_running(pid_t cpid)
@@ -115,12 +122,12 @@ void run_debugger(pid_t cpid, unsigned long addr)
     // Obtain and show child's RIP reg
     get_regs(cpid, &regs);
     
-    #ifdef __aarch64__
+#ifdef __aarch64__
         procmsg("Child started at PC = 0x%08x\n", regs.pc);
-    #endif
-    #ifdef __x86_64__
+#endif
+#ifdef __x86_64__
         procmsg("Child started at RIP = 0x%08x\n", regs.rip);
-    #endif
+#endif
 
     unsigned long data = set_breakpoint(cpid, addr);
 
@@ -131,12 +138,12 @@ void run_debugger(pid_t cpid, unsigned long addr)
     // Obtain and show child's RIP reg
     get_regs(cpid, &regs);
 
-    #ifdef __aarch64__
+#ifdef __aarch64__
         procmsg("Child stopped at PC = 0x%08x\n", regs.pc);
-    #endif
-    #ifdef __x86_64__
+#endif
+#ifdef __x86_64__
         procmsg("Child stopped at RIP = 0x%08x\n", regs.rip);
-    #endif
+#endif
 
     remove_breakpoint(cpid, addr, data, &regs);
 
@@ -147,12 +154,12 @@ int main(int argc, char **argv)
 {
     pid_t cpid;
 
-    #ifdef __aarch64__
+#ifdef __aarch64__
         procmsg("Target arch: aarch64\n");
-    #endif
-    #ifdef __x86_64__
+#endif
+#ifdef __x86_64__
         procmsg("Target arch: x86_64\n");
-    #endif
+#endif
 
     if (argc < 3)
     {
