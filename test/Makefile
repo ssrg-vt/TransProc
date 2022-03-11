@@ -17,7 +17,7 @@ BIN := test
 DEBUG := y
 
 dump:
-	$(CRIU) dump -vvv -o dump.log -t $(PID) --shell-job && echo OK
+	$(CRIU) dump -vvv --shell-job -o dump.log -t $(PID)
 
 transform:
 	$(PYTHON) $(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
@@ -35,4 +35,4 @@ shuffle:
 
 restore:
 	chmod +x $(BIN)
-	$(CRIU) restore -vvv -o restore.log --shell-job
+	$(CRIU) restore -vvv --shell-job -o restore.log

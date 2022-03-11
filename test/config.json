@@ -1,0 +1,61 @@
+{
+    "hosts" : {
+        "x86-64" : {
+            "ip" : "10.20.10.8",
+            "hostname" : "stack_pop.controller_daemon.x86_64",
+            "user" : "root"
+        },
+        "aarch64" : {
+            "ip" : "10.20.10.16",
+            "hostname" : "stack_pop.controller_daemon.aarch64",
+            "user" : "root"
+        }
+    },
+    "bin" : "bt",
+    "instructions" : {
+        "1" : {
+            "type" : "run",
+            "command" : "which python3",
+            "host" : "aarch64"
+        },
+        "2" : {
+            "type" : "run_and_infect",
+            "addr" : "0x50146f",
+            "host" : "x86-64"
+        },
+        "3" : {
+            "type" : "dump",
+            "host" : "x86-64"
+        },
+        "4" : {
+            "type" : "transform",
+            "host" : "x86-64",
+            "target" : "aarch64"
+        },
+        "5" : {
+            "type" : "restore",
+            "host" : "x86-64"
+        },
+        "6" : {
+            "type" : "restore_and_infect",
+            "addr" : "0x50193f",
+            "host" : "x86-64"
+        },
+        "7" : {
+            "type" : "copy_to_target",
+            "target" : "aarch64",
+            "host" : "x86-64"
+        }
+    },
+    "execution" : [
+        {
+            "freq" : 1,
+            "sequence" : [
+                "2",
+                "3",
+                "4",
+                "5"
+            ]
+        }
+    ]
+}
