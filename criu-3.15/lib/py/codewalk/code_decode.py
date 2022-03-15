@@ -310,6 +310,22 @@ class Disassemble:
                         inst.id == ARM64_INS_LDPSW):
                             disp = opr[2].value.mem.base
                             blk_offsets.append(disp)
+
+                    if inst.id == ARM64_INS_BL:
+                        func_info = elf_utils.find_functions(kwargs['path'])
+                        saddr, eaddr = [(info['saddr']['exe_offset'] - 0x400000 ,info['eaddr']['exe_offset'] - 0x400000) 
+                                for info in func_info 
+                                if (info['saddr']['exe_offset'] - 0x400000) == opr[0].imm][0]
+                        disasm.file.seek(saddr)
+                        data = disasm.file.read(eaddr-saddr)
+                        for inst in disasm.md.disasm(data, saddr):
+                            if len(inst.operands) >= 2:
+                                opr = [op for op in inst.operands]
+                                if opr[-1].reg == ARM64_REG_X29 and \
+                                    opr[-1].type == ARM64_OP_MEM and \
+                                    opr[-1].value.mem.disp > 0:
+                                        disp = opr[-1].value.mem.disp - 0x10
+                                        blk_offsets.append(disp)
          
         return blk_offsets
 
