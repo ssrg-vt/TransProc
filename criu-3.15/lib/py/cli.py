@@ -628,6 +628,7 @@ def examine_stack(opts):
                                         offset_bp,
                                         func_info,
                                         func_info_img,
+                                        False,
                                         path_exe = opts['exe'],
                                         arch = core['entries'][0]['mtype'])) as swalk:          
             swalk.view_all()
@@ -661,6 +662,7 @@ def stack_shuffle(opts):
                                                 offset_bp,
                                                 func_info,
                                                 func_info_img,
+                                                opts['param'],
                                                 path_exe = opts['exe'],
                                                 arch = core['entries'][0]['mtype'])) as sshuffle:          
             shuffled_info = sshuffle.shuffle_all()        
@@ -827,6 +829,9 @@ def main():
                            help='directory containing criu dump images')
     s_parser.add_argument('exe',
                            help='path to executable')
+    s_parser.add_argument('--param',
+                           help='shuffle function parameters on stack',
+                           action='store_true')
     s_parser.set_defaults(func=stack_shuffle)
 	
     opts = vars(parser.parse_args())

@@ -6,6 +6,7 @@ import random
 import contextlib
 import struct
 import code
+from threading import local
 import time
 from array import array
 from pathlib import Path
@@ -29,8 +30,10 @@ class StackFrame:
         self.arch = None
         self.stack_inst = list()
         self.filepath = None
+        self.shuffle_param = False
+        self.func_info = None
         
-    def create_frame(self, sp, bp, func_name, local_info, filepath, path_exe, arch):
+    def create_frame(self, sp, bp, func_name, local_info, filepath, path_exe, arch, shuffle_param):
         """ Assign attributes to stack frame.
 
         Args:
@@ -52,6 +55,7 @@ class StackFrame:
         self.filepath = filepath
         self.path_exe = path_exe
         self.stack_offset = defaultdict(lambda: {'code_offset': [], 'size':0})
+        self.shuffle_param = shuffle_param
 
     def print_stack_frame(self):
         """ Print stack frame content.
@@ -70,13 +74,13 @@ class StackFrame:
     def set_stack_locals(self, func_info):
         """ Function to obtain stack and corresponding code offsets.
         """
-
-
+        if self.func_info is None:
+            self.func_info = func_info
         for func in func_info:
             if func['name'] == self.func_name:
                 with contextlib.closing(code_decode.Disassemble(self.path_exe,
                                                                 arch = self.arch)) as disasm:
-                    self.stack_inst = disasm.get_local_offsets(func['saddr']['exe_offset'],func['eaddr']['exe_offset'])
+                    self.stack_inst = disasm.get_local_offsets(func['saddr']['exe_offset'],func['eaddr']['exe_offset'], False)
                     self.saddr = func['saddr']['exe_offset']
                     self.eaddr = func['eaddr']['exe_offset']
 
@@ -84,13 +88,58 @@ class StackFrame:
                     with contextlib.closing(code_decode.Disassemble(self.filepath, 
                                                                     arch = self.arch)) as disasm:
                         offsets = disasm.get_local_offsets(func['saddr']['criu_offset'], 
-                                                                    func['saddr']['criu_offset'] + func['saddr']['criu_size'])           
+                                                                    func['saddr']['criu_offset'] + func['saddr']['criu_size'],
+                                                                    False)           
         
                         for offset in offsets:
                             self.stack_offset[offset['stack_offset']]['code_offset'].append(offset['code_offset'])
                             self.stack_offset[offset['stack_offset']]['size'] = offset['size']
 
                 break
+
+    def get_elf_code_offset(self, saddr, stack_offset, refer_bp):
+        """ Function to obtain code offset from criu image for corresponding elf code offsets.
+        """
+        if self.func_info is None:
+            return
+
+        code_offset = list()
+        for func in self.func_info:
+            if func['saddr']['exe_offset'] == saddr:
+                with contextlib.closing(code_decode.Disassemble(self.path_exe, 
+                                                                arch = self.arch)) as disasm:
+                    offsets = disasm.get_local_offsets(func['saddr']['exe_offset'], 
+                                                                func['eaddr']['exe_offset'],
+                                                                refer_bp)           
+                    for offset in offsets:
+                        if offset['stack_offset'] == stack_offset:
+                            code_offset.append(offset['code_offset'])
+                break
+
+        return code_offset
+
+    def get_criu_code_offset(self, saddr, stack_offset):
+        """ Function to obtain code offset from criu image for corresponding elf code offsets.
+        """
+        if self.func_info is None:
+            return
+
+        code_offset = list()
+        for func in self.func_info:
+            if func['saddr']['exe_offset'] == saddr:
+                if func['saddr']['criu_offset']:
+                    with contextlib.closing(code_decode.Disassemble(self.filepath, 
+                                                                    arch = self.arch)) as disasm:
+                        offsets = disasm.get_local_offsets(func['saddr']['criu_offset'], 
+                                                                    func['saddr']['criu_offset'] + func['saddr']['criu_size'],
+                                                                    False)           
+        
+                        for offset in offsets:
+                            if offset['stack_offset'] == stack_offset:
+                                code_offset.append(offset['code_offset'])
+                break
+
+        return code_offset
 
     def update_stack_reference(self,offset1, offset2,size):
         """ Function to update stack reference of offset1 to offset2.
@@ -171,12 +220,16 @@ class StackFrame:
         if '!PIE!' in self.func_name:
             return
 
-        blk_offsets = code_decode.Disassemble.blk_stack_references(saddr = self.saddr, 
+        blk_offsets, param_offsets = code_decode.Disassemble.blk_stack_references(saddr = self.saddr, 
                                                                     eaddr = self.eaddr,
                                                                     path = self.path_exe,
                                                                     arch = self.arch)                                                                  
-        
+
         shuffle_info = defaultdict(dict)
+        param_offset = set()
+        for offsets in param_offsets.values():
+            param_offset.update(offsets)
+
         # While building the stack code offset structure, if for any instructions referencing
         # the stack offset uses instructions blacklisted (eg., lea for call by address/reference)
         # then do not consider the stack offset for shuffling.
@@ -202,12 +255,19 @@ class StackFrame:
             q_ref = [{'stack_offset': inst['stack_offset'], 'code_offset': inst['code_offset']} 
                         for inst in self.stack_inst if inst['size'] == 0x8 and
                                                     inst['stack_offset'] >= 0 and 
-                                                    inst['stack_offset'] not in blk_offsets]      
-                   
+                                                    inst['stack_offset'] not in blk_offsets]
+
+            if self.shuffle_param:
+                p_ref = [{'stack_offset': inst['stack_offset'], 'code_offset': inst['code_offset']} 
+                            for inst in self.stack_inst if inst['size'] == 0x8 and
+                                                        inst['stack_offset'] >= 0 and 
+                                                        inst['stack_offset'] in param_offset]  
+               
         d_offset = defaultdict(list)
         for ref in d_ref:
             d_offset[ref['stack_offset']].append(ref['code_offset'])
         d_shuffle_list = StackFrame.get_shuffled_offsets(d_offset, self.path_exe, self.arch)
+
         q_offset = defaultdict(list)
         for ref in q_ref:
             if ref['stack_offset'] in d_offset.keys():
@@ -216,13 +276,25 @@ class StackFrame:
                 q_offset[ref['stack_offset']].append(ref['code_offset'])
         q_shuffle_list = StackFrame.get_shuffled_offsets(q_offset, self.path_exe, self.arch)
 
+        if self.shuffle_param:
+            p_offset = defaultdict(list)
+            for ref in p_ref:
+                p_offset[ref['stack_offset']].append(ref['code_offset'])
+            p_shuffle_list = StackFrame.get_shuffled_offsets(p_offset, self.path_exe, self.arch)
+
         print(f"Function: {self.func_name}")
         tsref = sum([len(offset) for offset in d_offset.values()]) + \
-                    sum([len(offset) for offset in q_offset.values()])
+                    sum([len(offset) for offset in q_offset.values()]) + \
+                        (sum([len(offset) for offset in p_offset.values()]) if self.shuffle_param else 0)
         print(f"  Total stack ref   : {tsref}")
+
         ssref = sum ([len(d_offset[offset[0]]) + len(d_offset[offset[1]]) for offset in d_shuffle_list]) + \
                     sum ([len(q_offset[offset[0]]) + len(q_offset[offset[1]]) for offset in q_shuffle_list])
-        print(f"  Shuffled Stack ref: {ssref}")
+        print(f"  Shuffled stack ref: {ssref}")
+
+        if self.shuffle_param:
+            spref = sum ([len(p_offset[offset[0]]) + len(p_offset[offset[1]]) for offset in p_shuffle_list])
+            print(f"  Shuffled param ref: {spref}")
 
         # For every stack offset, pair with new offset and accordingly modify
         # stack and code pages
@@ -243,7 +315,7 @@ class StackFrame:
                                             0x8)
                 self.update_stack_reference(self.offset_sp + stack_offset2, 
                                             self.offset_sp + stack_offset1,
-                                            0x8)    
+                                            0x8)
 
             code_decode.Disassemble.update_code_page(stack_offset1 = stack_offset1,
                                                         stack_offset2 = stack_offset2,
@@ -295,15 +367,67 @@ class StackFrame:
                                                         code_offsets_criu = self.stack_offset[stack_offset2]['code_offset'],
                                                         path_exe = self.path_exe,
                                                         path_criu = self.filepath,
-                                                        arch = self.arch)                                                     
-        
+                                                        arch = self.arch)
+
+        if self.shuffle_param:
+            for stack_offset1, stack_offset2 in p_shuffle_list:
+                print(f"  Shuffle Offsets: {hex(stack_offset1)} <--> {hex(stack_offset2)}")
+                shuffle_info[self.func_name][stack_offset1] = (stack_offset2, 0x8)
+                shuffle_info[self.func_name][stack_offset2] = (stack_offset1, 0x8) 
+                if self.arch == 'X86_64':                   
+                    self.update_stack_reference(self.offset_bp + stack_offset1, 
+                                                self.offset_bp + stack_offset2,
+                                                0x8)
+                    self.update_stack_reference(self.offset_bp + stack_offset2, 
+                                                self.offset_bp + stack_offset1,
+                                                0x8)      
+                else:               
+                    self.update_stack_reference(self.offset_sp + stack_offset1, 
+                                                self.offset_sp + stack_offset2,
+                                                0x8)
+                    self.update_stack_reference(self.offset_sp + stack_offset2, 
+                                                self.offset_sp + stack_offset1,
+                                                0x8)    
+
+                code_decode.Disassemble.update_code_page(stack_offset1 = stack_offset1,
+                                                            stack_offset2 = stack_offset2,
+                                                            code_offsets_exe = p_offset[stack_offset1],
+                                                            code_offsets_criu = self.stack_offset[stack_offset1]['code_offset'],
+                                                            path_exe = self.path_exe,
+                                                            path_criu = self.filepath,
+                                                            arch = self.arch)
+
+                code_decode.Disassemble.update_code_page(stack_offset1 = stack_offset2,
+                                                            stack_offset2 = stack_offset1,
+                                                            code_offsets_exe = p_offset[stack_offset2],
+                                                            code_offsets_criu = self.stack_offset[stack_offset2]['code_offset'],
+                                                            path_exe = self.path_exe,
+                                                            path_criu = self.filepath,
+                                                            arch = self.arch)
+
+                for saddr in param_offsets.keys():
+                    code_decode.Disassemble.update_code_page(stack_offset1 = stack_offset1 + 0x10,
+                                                                stack_offset2 = stack_offset2 + 0x10,
+                                                                code_offsets_exe = self.get_elf_code_offset(saddr, stack_offset1 + 0x10, True),
+                                                                code_offsets_criu = self.get_criu_code_offset(saddr, stack_offset1 + 0x10),
+                                                                path_exe = self.path_exe,
+                                                                path_criu = self.filepath,
+                                                                arch = self.arch)
+                  
+                    code_decode.Disassemble.update_code_page(stack_offset1 = stack_offset2 + 0x10,
+                                                                stack_offset2 = stack_offset1 + 0x10,
+                                                                code_offsets_exe = self.get_elf_code_offset(saddr, stack_offset2 + 0x10, True),
+                                                                code_offsets_criu = self.get_criu_code_offset(saddr, stack_offset2 + 0x10),
+                                                                path_exe = self.path_exe,
+                                                                path_criu = self.filepath,
+                                                                arch = self.arch)   
         return shuffle_info
                                                          
 
 class Stack:
     """ Class to represent stack of the checkpointed process.
     """
-    def __init__(self, filepath, ip, sp, offset_sp, offset_bp, func_info, func_info_img, path_exe = None, arch = None):
+    def __init__(self, filepath, ip, sp, offset_sp, offset_bp, func_info, func_info_img, shuffle_param, path_exe = None, arch = None):
         """ Class constructor to repsent entire stack read from pages-%.img.
 
         Args:
@@ -323,6 +447,7 @@ class Stack:
         self.offset_bp = offset_bp
         self.func_info = func_info
         self.func_info_img = func_info_img
+        self.shuffle_param = shuffle_param
         self.path_exe = path_exe
         if arch.upper() not in ('X86_64', 'AARCH64',):
             raise Exception("Unsupported Architecture")
@@ -381,7 +506,7 @@ class Stack:
             local_info['stack_data'] = val
             local_info['stack_raw'] = frame_content
             frame = StackFrame()
-            frame.create_frame(sp, bp, name, local_info, self.filepath, self.path_exe, self.arch)
+            frame.create_frame(sp, bp, name, local_info, self.filepath, self.path_exe, self.arch, self.shuffle_param)
             frame.set_stack_locals(self.func_info_img)    
 
             yield frame

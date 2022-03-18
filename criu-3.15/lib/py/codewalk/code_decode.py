@@ -85,14 +85,14 @@ class Disassemble:
         for inst in self.md.disasm(data, start_address):
             print("0x%x:\t%s\t%s" %(inst.address, inst.mnemonic, inst.op_str))
 
-    def get_local_offsets(self, start_address, end_address):
+    def get_local_offsets(self, start_address, end_address, refer_bp):
         """ Function to return list of local references in code which reference
         stack
 
         Args:
             start_address: Start address in pages-%.img to find instructions
             end_address: End address in pages-%.img to find instructions
-
+            refer_bp: Use BP as reference for offset calculation
         Return:
             Returns a list of local reference info of the following type.
                 [
@@ -122,16 +122,17 @@ class Disassemble:
             else:
                 if len(inst.operands) >= 2:
                     opr = [op for op in inst.operands]
-                    if opr[-1].reg == ARM64_REG_SP and \
+                    reg = ARM64_REG_X29 if refer_bp else ARM64_REG_SP
+                    if opr[-1].reg == reg and \
                         opr[-1].type == ARM64_OP_MEM:
-                            inst_info = dict()
-                            inst_info['code_offset'] =  inst.address
-                            inst_info['stack_offset'] = opr[-1].value.mem.disp
-                            inst_info['size'] = 0x4 if opr[0].reg >= ARM64_REG_W0 and \
-                                                        opr[0].reg <= ARM64_REG_W30 else 0x8
-                            if len(inst.operands) == 3:
-                                 inst_info['size'] *= 2
-                            info.append(inst_info)
+                        inst_info = dict()
+                        inst_info['code_offset'] =  inst.address
+                        inst_info['stack_offset'] = opr[-1].value.mem.disp
+                        inst_info['size'] = 0x4 if opr[0].reg >= ARM64_REG_W0 and \
+                                                    opr[0].reg <= ARM64_REG_W30 else 0x8
+                        if len(inst.operands) == 3:
+                                inst_info['size'] *= 2
+                        info.append(inst_info)
 
         # filter those stack_offsets which have both Qword and Dword inst references.
         # certain runs of SNU cg fails without this filter
@@ -143,7 +144,7 @@ class Disassemble:
         
         rem_offset = [stack_offset for stack_offset, size in offset_size.items() if len(size) > 2]
         info_filtered = [finfo for finfo in info if finfo['stack_offset'] not in rem_offset]
-
+        
         return info_filtered
 
     def update_code_page(**kwargs):
@@ -167,6 +168,7 @@ class Disassemble:
                             buffer = mm.read(0xf)
                             inst =  list(disasm.md.disasm(buffer , offset, 1))[0]
                             inst_size = inst.size
+                            inst_address = inst.address
                             inst_old = "%s %s" %(inst.mnemonic, inst.op_str)
                             # Capstone may not prefix 0x to 1-digit hex values.
                             if stack_offset1 == '0' \
@@ -176,7 +178,7 @@ class Disassemble:
                             else:
                                 s_old = f"0?x?X?{stack_offset1}]"
                                 s_new = f"0x{stack_offset2}]"                            
-                            inst = re.sub(s_old, s_new, inst_old)        
+                            inst = re.sub(s_old, s_new, inst_old)    
                             inst = inst.encode()
                             if kwargs['arch'] == 'X86_64':
                                 ks = Ks(KS_ARCH_X86, KS_MODE_64)
@@ -279,6 +281,7 @@ class Disassemble:
         eaddr = kwargs['eaddr']
         arch = kwargs['arch']
         blk_offsets = list()
+        param_offsets = defaultdict(set)
 
         with contextlib.closing(Disassemble(kwargs['path'], arch = arch)) as disasm:
             disasm.md.detail = True
@@ -326,8 +329,9 @@ class Disassemble:
                                     opr[-1].value.mem.disp > 0:
                                         disp = opr[-1].value.mem.disp - 0x10
                                         blk_offsets.append(disp)
+                                        param_offsets[saddr].add(disp)
          
-        return blk_offsets
+        return blk_offsets, param_offsets
 
 if __name__ == '__main__':
     for filepath in sys.argv[1:]:
