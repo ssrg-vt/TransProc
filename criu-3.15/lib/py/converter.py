@@ -673,7 +673,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         if os.path.exists(self.dest_dir):
             shutil.rmtree(self.dest_dir)
         os.makedirs(self.dest_dir)
-        self.copy_bin_files()
+        #self.copy_bin_files()
         self.transform_cgroup_file()
         self.transform_fdinfo_file()
         self.transform_fs_file()
@@ -810,18 +810,18 @@ class X8664Converter(Converter):
             "cwd": 0, "swd": 0, "twd": 0, "fop": 0,
             "rip": 0, "rdp": 0, "mxcsr": 8064, "mxcsr_mask": 65535,
             "st_space": [ 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0],
-            "xmm_space": [0, 0, 0, 0, 1024, 0, 10498320, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 
-                        0, 0, 0, 0, 0, 0, 0, 0], 
-            "xsave": { "xstate_bv": 2,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 2147483648, 16386, 0],
+            "xmm_space": [16, 48, 2343184048, 32767, 5384384, 0, 5261400, 0,
+						0, 0, 1, 0, 0, 0, 20, 0, 
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0, 
+						0, 0, 0, 0, 0, 0, 0, 0], 
+            "xsave": { "xstate_bv": 3,
                         "ymmh_space": [0, 0, 0, 0, 0, 0, 0, 0,
                                     0, 0, 0, 0, 0, 0, 0, 0,
                                     0, 0, 0, 0, 0, 0, 0, 0,

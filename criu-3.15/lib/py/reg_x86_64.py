@@ -138,7 +138,7 @@ class RegsetX8664:
         core['thread_info']['gpregs']['gs'] = self.gs
         #core['thread_info']['gpregs']['flags'] = self.rflags
         # self.mmx = [0] * 8 #TODO Read from file
-        for i in range(62): # core image has 62 entries for xmm
-            core['thread_info']['fpregs']['xmm_space'][i] = self.xmm[i]
+        # for i in range(62): # core image has 62 entries for xmm
+        #     core['thread_info']['fpregs']['xmm_space'][i] = self.xmm[i]
         # for i in range(32): # core image has 32 entries for st
         #     core['thread_info']['fpregs']['st_space'][i] = self.st
