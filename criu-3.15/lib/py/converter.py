@@ -265,7 +265,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     
     def copy_code_pages(self, code_offset, num_pages, vaddr, text_start, dest_pages):
         dest_pages.seek(code_offset)
-        dest = elf_utils.open_elf_file_fp(join(self.dest_dir, self.bin))
+        (d, b) = self.get_dest_bin_path()
+        dest = elf_utils.open_elf_file_fp(join(d, b))
         text = elf_utils.get_elf_section(dest, '.text')
         buffer = text.data()
         va = int(vaddr, 16)
@@ -515,7 +516,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         src_files_img = self.load_image_file(self.src_image_file_paths[FILES])
         (fid, idx) = self.get_binary_info(self.src_image_file_paths[FILES],
                                           self.src_image_file_paths[MM])
-        bin = join(self.dest_dir, self.bin)
+        (d, b) = self.get_dest_bin_path()
+        bin = join(d, b)
         assert os.path.isfile(bin)
         stat = os.stat(bin)
         dst_files_img = copy(src_files_img)
