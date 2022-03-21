@@ -446,6 +446,10 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     @abstractmethod
     def copy_bin_files(self):
         pass
+    
+    @abstractmethod
+    def get_dest_bin_path(self):
+        pass
 
     @abstractmethod
     def assert_conditions(self):
@@ -540,8 +544,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
 
         dest_mm_img = copy(src_mm_img)
         dest_pm_img = copy(src_pm_img)
-
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        
+        (d, b) = self.get_dest_bin_path()
+        dest_bin = elf_utils.open_elf_file(d, b)
         text_sec = elf_utils.get_elf_section(dest_bin, '.text')
         text_start = text_sec.header.sh_addr
         pg_off = text_sec.header.sh_offset
@@ -617,7 +622,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         src_core = self.load_image_file(self.src_image_file_paths[CORE], False, True, False)
         dest_core = self.load_image_file(self.dest_image_file_paths[CORE], False, True, False)
         src_bin = elf_utils.open_elf_file(self.src_dir, self.bin)
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        (d, b) = self.get_dest_bin_path()
+        dest_bin = elf_utils.open_elf_file(d, b)
         
         if self.arch == AARCH64:
             src_handle = StHandle(definitions.X86_64, src_bin)
@@ -710,6 +716,10 @@ class X8664Converter(Converter):
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(x64_bin, base)
         self.log('Binary copied')
+    
+    def get_dest_bin_path(self):
+        x64_bin = self.bin+X8664_SUFFIX
+        return (self.bin_dir, x64_bin)
     
     def get_vsyscall_template(self):
         mm={
@@ -905,6 +915,10 @@ class Aarch64Converter(Converter):
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(aarch64_bin, base)
         self.log('Binary copied')
+    
+    def get_dest_bin_path(self):
+        aarch64_bin = self.bin+AARCH64_SUFFIX
+        return (self.bin_dir, aarch64_bin)
 
     def get_vsyscall_template(self):
         return None, None, None
