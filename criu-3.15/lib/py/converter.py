@@ -265,7 +265,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     
     def copy_code_pages(self, code_offset, num_pages, vaddr, text_start, dest_pages):
         dest_pages.seek(code_offset)
-        dest = elf_utils.open_elf_file_fp(join(self.dest_dir, self.bin))
+        (d, b) = self.get_dest_bin_path()
+        dest = elf_utils.open_elf_file_fp(join(d, b))
         text = elf_utils.get_elf_section(dest, '.text')
         buffer = text.data()
         va = int(vaddr, 16)
@@ -446,6 +447,10 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     @abstractmethod
     def copy_bin_files(self):
         pass
+    
+    @abstractmethod
+    def get_dest_bin_path(self):
+        pass
 
     @abstractmethod
     def assert_conditions(self):
@@ -511,7 +516,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         src_files_img = self.load_image_file(self.src_image_file_paths[FILES])
         (fid, idx) = self.get_binary_info(self.src_image_file_paths[FILES],
                                           self.src_image_file_paths[MM])
-        bin = join(self.dest_dir, self.bin)
+        (d, b) = self.get_dest_bin_path()
+        bin = join(d, b)
         assert os.path.isfile(bin)
         stat = os.stat(bin)
         dst_files_img = copy(src_files_img)
@@ -540,8 +546,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
 
         dest_mm_img = copy(src_mm_img)
         dest_pm_img = copy(src_pm_img)
-
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        
+        (d, b) = self.get_dest_bin_path()
+        dest_bin = elf_utils.open_elf_file(d, b)
         text_sec = elf_utils.get_elf_section(dest_bin, '.text')
         text_start = text_sec.header.sh_addr
         pg_off = text_sec.header.sh_offset
@@ -617,7 +624,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         src_core = self.load_image_file(self.src_image_file_paths[CORE], False, True, False)
         dest_core = self.load_image_file(self.dest_image_file_paths[CORE], False, True, False)
         src_bin = elf_utils.open_elf_file(self.src_dir, self.bin)
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        (d, b) = self.get_dest_bin_path()
+        dest_bin = elf_utils.open_elf_file(d, b)
         
         if self.arch == AARCH64:
             src_handle = StHandle(definitions.X86_64, src_bin)
@@ -673,7 +681,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         if os.path.exists(self.dest_dir):
             shutil.rmtree(self.dest_dir)
         os.makedirs(self.dest_dir)
-        self.copy_bin_files()
+        #self.copy_bin_files()
         self.transform_cgroup_file()
         self.transform_fdinfo_file()
         self.transform_fs_file()
@@ -710,6 +718,10 @@ class X8664Converter(Converter):
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(x64_bin, base)
         self.log('Binary copied')
+    
+    def get_dest_bin_path(self):
+        x64_bin = self.bin+X8664_SUFFIX
+        return (self.bin_dir, x64_bin)
     
     def get_vsyscall_template(self):
         mm={
@@ -810,18 +822,18 @@ class X8664Converter(Converter):
             "cwd": 0, "swd": 0, "twd": 0, "fop": 0,
             "rip": 0, "rdp": 0, "mxcsr": 8064, "mxcsr_mask": 65535,
             "st_space": [ 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0],
-            "xmm_space": [0, 0, 0, 0, 1024, 0, 10498320, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 
-                        0, 0, 0, 0, 0, 0, 0, 0], 
-            "xsave": { "xstate_bv": 2,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 2147483648, 16386, 0],
+            "xmm_space": [16, 48, 2343184048, 32767, 5384384, 0, 5261400, 0,
+						0, 0, 1, 0, 0, 0, 20, 0, 
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0,
+						0, 0, 0, 0, 0, 0, 0, 0, 
+						0, 0, 0, 0, 0, 0, 0, 0], 
+            "xsave": { "xstate_bv": 3,
                         "ymmh_space": [0, 0, 0, 0, 0, 0, 0, 0,
                                     0, 0, 0, 0, 0, 0, 0, 0,
                                     0, 0, 0, 0, 0, 0, 0, 0,
@@ -905,6 +917,10 @@ class Aarch64Converter(Converter):
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(aarch64_bin, base)
         self.log('Binary copied')
+    
+    def get_dest_bin_path(self):
+        aarch64_bin = self.bin+AARCH64_SUFFIX
+        return (self.bin_dir, aarch64_bin)
 
     def get_vsyscall_template(self):
         return None, None, None

@@ -118,3 +118,68 @@ python3 controller_client.py -v -d <path to the benchmark dir>
 # python3 controller_client.py -v -d /root/bt/
 ```
 
+### Bare Metal:
+Running on bare metal is same as running on VMs just that we have to instrument the kernels to match kernel versions of source and destination and their CGROUP config. This is already done for the VM images provided above. Bare metal testing requires a x86-64 CPU and an ARM board. This README will show how to setup the test environment with an Intel/AMD CPU along with a Raspberry Pi.
+
+Follow [this](https://ubuntu.com/tutorials/how-to-install-ubuntu-on-your-raspberry-pi#1-overview) tutorial to install Ubuntu 20.04 server on the Raspberry Pi.
+
+Download the Linux Kernel Debian Packages from [here](https://drive.google.com/drive/folders/1354DUEF0uy7lI1fCUfZ9LKwa1DbtKnkL?usp=sharing) into a local directory. In a terminal, stay in the directory and run 
+```
+sudo dpkg -i *.deb
+```
+This will install the kernel on the machine. Run `sudo update-grub` and restart the machine with the new kernel. 
+
+After restarting, output of the following two commands should match on your Raspberry Pi and the local machine.
+```
+cat /boot/config-$(uname -r) | grep CGROUP
+cat /proc/self/cgroup
+```
+If the outputs match, the bare metal test environment is correctly setup and tests can be run on this environment same as on the VMs.
+
+### Build Your Own Kernel:
+It might happen that the drivers used by the kernel package provided above might not work on your local system correctly, in that case one has to build their own kernel. We will now show how to build a custom kernel. As previously mentioned, the goal of building our own kernel is to match CGROUPs. We want to match the output of the following two commands on both the machines:
+```
+cat /boot/config-$(uname -r) | grep CGROUP
+cat /proc/self/cgroup
+```
+
+Download a linux kernel v5.4 tarball from [here](https://www.kernel.org/) and extract or run 
+```
+git clone https://github.com/torvalds/linux.git
+``` 
+to clone the linux repository and then run 
+```
+git checkout v5.4
+```
+
+Next go the the linux local repository and run:
+```
+make localmodconfig
+```
+This will create a config file same as the config file of the kernel you are currently running. This is an important step to create a config file that builds all the correct modules for your hardware.
+
+Next on your Raspberry Pi run the command:
+```
+cat /boot/config-$(uname -r) | grep CGROUP
+```
+Open the .config file created on the local linux repository and make sure to match all the lines related to CGROUPS inside the config file to look same as the output printed on the Raspberry Pi.
+
+Next, again on your Raspberry Pi, run the following command:
+```
+cat /proc/self/cgroup
+```
+On the local linux repository, run:
+```
+make menuconfig
+```
+Navigate to General Setup --> Control Group Support and uncheck all the extra Control Groups which are not printed by the command executed on the Raspberry Pi.
+
+Once this is done, exit the menuconfig UI and save the changes.
+
+Now the configuration is setup, to build the kernel run:
+```
+make -j4 deb-pkg
+```
+This will take a while as it will build the entire kernel for your machine and generate debian packages (files that end with .deb)
+
+Place the debian packages in another directory and then follow the steps mentioned in the Bare Metal section of the README to install and setup the test environment. 

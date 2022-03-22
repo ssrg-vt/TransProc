@@ -479,48 +479,50 @@ def sunw(opts):
     funcs = [v.split(' ')[2] for v in output.split('\n') if v != '']
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        print("%d" % pid)
-        core = pycriu.images.load(
-            utils.dinf(opts, 'core-%d.img' % pid))['entries'][0]
-        if core['mtype'] == 'X86_64':
-            sp = core['thread_info']['gpregs']['sp']
-            bp = core['thread_info']['gpregs']['bp']
-            ip = core['thread_info']['gpregs']['ip']
-        elif core['mtype'] == 'AARCH64':
-            sp = core['ti_aarch64']['gpregs']['sp']
-            bp = core['ti_aarch64']['gpregs']['regs'][29]
-            ip = core['ti_aarch64']['gpregs']['pc']
-        pms = pycriu.images.load(utils.dinf(
-            opts, 'pagemap-%d.img' % pid))['entries']
-        pages_to_skip = 0
-        for pm in pms[1:]:
-            nr_pages = pm['nr_pages']
-            st_vaddr = pm['vaddr']
-            end_vaddr = st_vaddr + (nr_pages << 12)
-            if(sp > end_vaddr):
-                pages_to_skip += nr_pages
-                continue
-            else:
-                break
+        tids = p['threads']
+        for tid in tids:
+            print("\nFor core-%d" % tid)
+            core = pycriu.images.load(
+                utils.dinf(opts, 'core-%d.img' % tid))['entries'][0]
+            if core['mtype'] == 'X86_64':
+                sp = core['thread_info']['gpregs']['sp']
+                bp = core['thread_info']['gpregs']['bp']
+                ip = core['thread_info']['gpregs']['ip']
+            elif core['mtype'] == 'AARCH64':
+                sp = core['ti_aarch64']['gpregs']['sp']
+                bp = core['ti_aarch64']['gpregs']['regs'][29]
+                ip = core['ti_aarch64']['gpregs']['pc']
+            pms = pycriu.images.load(utils.dinf(
+                opts, 'pagemap-%d.img' % pid))['entries']
+            pages_to_skip = 0
+            for pm in pms[1:]:
+                nr_pages = pm['nr_pages']
+                st_vaddr = pm['vaddr']
+                end_vaddr = st_vaddr + (nr_pages << 12)
+                if(sp > end_vaddr):
+                    pages_to_skip += nr_pages
+                    continue
+                else:
+                    break
 
-        print('sp: 0x%lx' % sp)
-        pages = utils.dinf(opts, "pages-%d.img" % proc_num)
-        if sp != bp:
-            pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
-            for i in range(2):
-                val = struct.unpack('<Q', pages.read(8))[0]
-                print('(SP + 0x%x) 0x%lx (%ld)' % (8*i, val, val))
+            print('sp: 0x%lx' % sp)
+            pages = utils.dinf(opts, "pages-%d.img" % proc_num)
+            if sp != bp:
+                pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
+                for i in range(2):
+                    val = struct.unpack('<Q', pages.read(8))[0]
+                    print('(SP + 0x%x) 0x%lx (%ld)' % (8*i, val, val))
 
-        while True:
-            adr = [a for a in addresses if a <= ip]
-            if not bp or bp <= st_vaddr:
-                break
-            sp, bp, ip = utils.print_stack(
-                sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
-        if ip:
-            adr = [a for a in addresses if a <= ip]
-            print('\nip: 0x%lx (%s + %d)' %
-                  (ip, funcs[len(adr)-1], ip - adr[-1]))
+            while True:
+                adr = [a for a in addresses if a <= ip]
+                if not bp or bp <= st_vaddr:
+                    break
+                sp, bp, ip = utils.print_stack(
+                    sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr)
+            if ip:
+                adr = [a for a in addresses if a <= ip]
+                print('\nip: 0x%lx (%s + %d)' %
+                    (ip, funcs[len(adr)-1], ip - adr[-1]))
 
 
 def recode(opts):
