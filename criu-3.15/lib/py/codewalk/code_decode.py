@@ -178,7 +178,8 @@ class Disassemble:
                             else:
                                 s_old = f"0?x?X?{stack_offset1}]"
                                 s_new = f"0x{stack_offset2}]"                            
-                            inst = re.sub(s_old, s_new, inst_old)    
+                            inst = re.sub(s_old, s_new, inst_old)
+                            inst_new = inst
                             inst = inst.encode()
                             if kwargs['arch'] == 'X86_64':
                                 ks = Ks(KS_ARCH_X86, KS_MODE_64)
@@ -195,6 +196,7 @@ class Disassemble:
                                 nop_enc, _ = ks.asm('nop')
                                 for b in range(inst_size - len(asm)):
                                     mv[offset + len(asm) + b] = nop_enc[0]
+
                     finally:
                         del mv
 
@@ -276,10 +278,22 @@ class Disassemble:
         """ Function to blacklist any stack references based on instruction type.
             Function arguments referencing caller stack can be blocked when stack offsets
             with lea instructions are filtered
+
+                                for inst in disasm.md.disasm(data, saddr):
+                                    if len(inst.operands) >= 2:
+                                        opr = [op for op in inst.operands]
+                                        if opr[-1].reg == X86_REG_RBP and \
+                                            opr[-1].type == X86_OP_MEM and \
+                                            opr[-1].value.mem.disp > 0:
+                                                disp = opr[-1].value.mem.disp - 0x10
+                                                blk_offsets.append(disp)
+                                                param_offsets[saddr].add(disp)
+
         """
         saddr = kwargs['saddr']
         eaddr = kwargs['eaddr']
         arch = kwargs['arch']
+
         blk_offsets = list()
         param_offsets = defaultdict(set)
 
@@ -296,17 +310,42 @@ class Disassemble:
                             opr.value.mem.disp != 0:
                                 if inst.reg_name(opr.value.mem.base).upper() == 'RBP':
                                     disp = opr.value.mem.disp
+                                    blk_offsets.append(disp + 0x8)
                                     blk_offsets.append(disp)
+
+                    """ TODO: Popcorn compiler uses RSP as reference to pass arguments
+                    to callee.
+                    if inst.id == X86_INS_CALL and inst.operands[0].type == X86_OP_IMM:
+                        func_info = elf_utils.find_functions(kwargs['path'])
+                        for info in func_info:
+                            if (info['saddr']['exe_offset'] - 0x400000) == inst.operands[0].imm:
+                                saddr, eaddr = (info['saddr']['exe_offset'] - 0x400000 ,info['eaddr']['exe_offset'] - 0x400000)                               
+                                disasm.file.seek(saddr)
+                                data = disasm.file.read(eaddr-saddr)
+                                for inst in disasm.md.disasm(data, saddr):
+                                    if len(inst.operands) == 2:
+                                        opr = [op for op in inst.operands]
+                                        if opr[-1].value.mem.base == X86_REG_RBP and \
+                                            opr[-1].type == X86_OP_MEM and \
+                                            opr[-1].value.mem.disp >= 0x10:
+                                                disp = opr[-1].value.mem.disp - 0x10
+                                                blk_offsets.append(disp)
+                                                param_offsets[saddr].add(disp)
+
+                                break 
+                    """
+
                 else:
                     opr = [opr for opr in inst.operands]
                     if  len(inst.operands) == 3 and \
-                        inst.reg_name(opr[1].value.mem.base).upper() == 'X29' and \
                         opr[1].type == ARM64_OP_REG and \
+                        opr[1].reg == ARM64_REG_X29 and \
                         opr[2].type == ARM64_OP_IMM:
                             disp = opr[2].value.mem.base
                             blk_offsets.append(disp)
 
                     if  len(inst.operands) == 3 and \
+                        opr[2].type == ARM64_OP_REG and \
                         opr[2].reg == ARM64_REG_X29 and \
                         (inst.id == ARM64_INS_STP or \
                         inst.id == ARM64_INS_LDP or \
@@ -316,21 +355,22 @@ class Disassemble:
 
                     if inst.id == ARM64_INS_BL:
                         func_info = elf_utils.find_functions(kwargs['path'])
-                        saddr, eaddr = [(info['saddr']['exe_offset'] - 0x400000 ,info['eaddr']['exe_offset'] - 0x400000) 
-                                for info in func_info 
-                                if (info['saddr']['exe_offset'] - 0x400000) == opr[0].imm][0]
-                        disasm.file.seek(saddr)
-                        data = disasm.file.read(eaddr-saddr)
-                        for inst in disasm.md.disasm(data, saddr):
-                            if len(inst.operands) >= 2:
-                                opr = [op for op in inst.operands]
-                                if opr[-1].reg == ARM64_REG_X29 and \
-                                    opr[-1].type == ARM64_OP_MEM and \
-                                    opr[-1].value.mem.disp > 0:
-                                        disp = opr[-1].value.mem.disp - 0x10
-                                        blk_offsets.append(disp)
-                                        param_offsets[saddr].add(disp)
-         
+                        for info in func_info:
+                            if (info['saddr']['exe_offset'] - 0x400000) == opr[0].imm:
+                                saddr, eaddr = (info['saddr']['exe_offset'] - 0x400000 ,info['eaddr']['exe_offset'] - 0x400000)   
+                                disasm.file.seek(saddr)
+                                data = disasm.file.read(eaddr-saddr)
+                                for inst in disasm.md.disasm(data, saddr):
+                                    if len(inst.operands) >= 2:
+                                        opr = [op for op in inst.operands]
+                                        if opr[-1].reg == ARM64_REG_X29 and \
+                                            opr[-1].type == ARM64_OP_MEM and \
+                                            opr[-1].value.mem.disp > 0:
+                                                disp = opr[-1].value.mem.disp - 0x10
+                                                blk_offsets.append(disp)
+                                                param_offsets[saddr].add(disp)
+                                break
+
         return blk_offsets, param_offsets
 
 if __name__ == '__main__':

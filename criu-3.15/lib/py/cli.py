@@ -665,7 +665,7 @@ def stack_shuffle(opts):
                                                 opts['param'],
                                                 path_exe = opts['exe'],
                                                 arch = core['entries'][0]['mtype'])) as sshuffle:          
-            shuffled_info = sshuffle.shuffle_all()        
+            shuffled_info = sshuffle.shuffle_all()       
 
         func_info = elf_utils.find_functions(opts['exe'])
         with open(opts['exe'], 'r+b') as f:
@@ -697,7 +697,9 @@ def stack_shuffle(opts):
                                     for sm_offset in sm_offsets:
                                         mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = tdest_offset
                 finally:
-                    del mv                     
+                    del mv
+        
+                             
 
 
 def main():
