@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pprint import pprint as pp
+from sqlite3 import paramstyle
 from elftools.elf.elffile import ELFFile
 from capstone import *
 from keystone import *
@@ -71,6 +72,56 @@ class Disassemble:
                 self.disassemble_range(self.start_address, self.end_address)
         except Exception as e:
             print('Could not process request: {}'.format(e))
+
+    def print_stack_layout(self, start_address, end_address):
+        """ Disassemble function in the range provided as byte offset.
+        
+        Args:
+            start_address: Byte offset to start disassembly.
+            end_address: Byte offset to stop disassembly.
+        """
+        self.md.detail = True
+        stack_size = 0
+        local_4B = 0
+        local_8B = 0
+        param = 0
+        self.file.seek(start_address)
+        data = self.file.read(end_address-start_address)
+        for inst in self.md.disasm(data, start_address):
+            if self.arch.upper() in ('X64', 'X86', 'X86_64'):
+                pass
+            else:
+                if len(inst.operands) >= 0x2:
+                    opr = [op for op in inst.operands]
+                    if opr[0].reg == ARM64_REG_SP and \
+                        opr[1].reg == ARM64_REG_SP and \
+                        inst.id == ARM64_INS_SUB:
+                            stack_size = opr[2].imm
+
+                    if opr[-1].reg == ARM64_REG_X29 and \
+                        opr[-1].type == ARM64_OP_MEM:
+                            if opr[-1].value.mem.disp < 0:
+                                if opr[0].reg >= ARM64_REG_W0 and \
+                                    opr[0].reg <=ARM64_REG_W30:
+                                    local_4B += 1
+                                else:
+                                    local_8B += 1
+                            else:
+                                param +=1
+
+                    if opr[-1].reg == ARM64_REG_SP and \
+                        opr[-1].type == ARM64_OP_MEM:
+                            if opr[0].reg >= ARM64_REG_W0 and \
+                                opr[0].reg <=ARM64_REG_W30:
+                                local_4B += 1
+                            else:
+                                local_8B += 1
+
+        print(f"Total stack size (Bytes):  {stack_size}")
+        print(f"       Total ref (Bytes): {local_4B * 4 + local_8B * 8}")
+        print(f" Empty stack ref (Bytes): {stack_size - (local_4B * 4 + local_8B * 8)}")
+        print(f" Stack param ref (Bytes): {param * 8}" )
+
 
     def disassemble_range(self, start_address, end_address):
         """ Disassemble function in the range provided as byte offset.

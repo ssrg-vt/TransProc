@@ -42,6 +42,8 @@ def get_top_stack_frame(mmi, pms, core , exe):
         else:
             offset_pages += pmap['nr_pages']
             continue
+    if bp < sp:
+        return None
     bp -= sp
     offset_sp = offset_pages * mmap.PAGESIZE + offset_bytes
     offset_bp = bp + offset_sp

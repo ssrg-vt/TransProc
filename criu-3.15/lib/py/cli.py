@@ -612,26 +612,29 @@ def examine_stack(opts):
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
         mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']    
-        core = pycriu.images.load(
-                    dinf(opts, 'core-%d.img' % pid))
-        page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, 
-                                                                                            pms, 
-                                                                                            core , 
-                                                                                            opts['exe'])
-        _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
-        page_file = os.path.join(opts['dir'], page_file)         
-        with contextlib.closing(stack_ops.Stack(page_file,
-                                        ip,
-                                        sp,
-                                        offset_sp,
-                                        offset_bp,
-                                        func_info,
-                                        func_info_img,
-                                        False,
-                                        path_exe = opts['exe'],
-                                        arch = core['entries'][0]['mtype'])) as swalk:          
-            swalk.view_all()
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        for tid in p['threads']:
+            core = pycriu.images.load(
+                        dinf(opts, 'core-%d.img' % tid))
+            stack_info = stack_utils.get_top_stack_frame(mmi, 
+                                                        pms, 
+                                                        core , 
+                                                        opts['exe'])
+            if stack_info is not None:
+                page_file, ip, sp, offset_sp, offset_bp, func_info = stack_info
+                _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
+                page_file = os.path.join(opts['dir'], page_file)         
+                with contextlib.closing(stack_ops.Stack(page_file,
+                                                ip,
+                                                sp,
+                                                offset_sp,
+                                                offset_bp,
+                                                func_info,
+                                                func_info_img,
+                                                False,
+                                                path_exe = opts['exe'],
+                                                arch = core['entries'][0]['mtype'])) as swalk:          
+                    swalk.view_all()
 
 
 examiners = {
@@ -643,63 +646,86 @@ examiners = {
 def examine(opts):
     examiners[opts['what']](opts)
 
+def stack_layout(opts):
+    """ Function to obtain stack metrics.
+    """
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    for p in ps_img['entries']:
+        pid = get_task_id(p, 'pid')
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        for tid in p['threads']:
+            core = pycriu.images.load(
+                        dinf(opts, 'core-%d.img' % tid))
+            _, func_info = code_utils.get_code_region(mmi, pms, opts['exe'])
+            with contextlib.closing(code_decode.Disassemble(opts['exe'], arch = core['entries'][0]['mtype'])) as disasm:
+                for info in func_info:
+                    str = "Function: {}".format(info["name"])
+                    banner(str)
+                    print(str)
+                    banner(str)
+                    disasm.print_stack_layout(info['saddr']['exe_offset'], info['eaddr']['exe_offset'])
 
 def stack_shuffle(opts):
     ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
         mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']    
-        core = pycriu.images.load(
-                    dinf(opts, 'core-%d.img' % pid))
-        page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, pms, core, opts['exe'])
-        _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
-        page_file = os.path.join(opts['dir'], page_file)   
-        with contextlib.closing(stack_ops.Stack(page_file,
-                                                ip,
-                                                sp,
-                                                offset_sp,
-                                                offset_bp,
-                                                func_info,
-                                                func_info_img,
-                                                opts['param'],
-                                                path_exe = opts['exe'],
-                                                arch = core['entries'][0]['mtype'])) as sshuffle:          
-            shuffled_info = sshuffle.shuffle_all()       
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        for tid in p['threads']:
+            core = pycriu.images.load(
+                        dinf(opts, 'core-%d.img' % tid))
+            stack_info = stack_utils.get_top_stack_frame(mmi, 
+                                                        pms, 
+                                                        core , 
+                                                        opts['exe'])
+            if stack_info is not None:
+                page_file, ip, sp, offset_sp, offset_bp, func_info = stack_info
+                _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
+                page_file = os.path.join(opts['dir'], page_file)   
+                with contextlib.closing(stack_ops.Stack(page_file,
+                                                        ip,
+                                                        sp,
+                                                        offset_sp,
+                                                        offset_bp,
+                                                        func_info,
+                                                        func_info_img,
+                                                        opts['param'],
+                                                        path_exe = opts['exe'],
+                                                        arch = core['entries'][0]['mtype'])) as sshuffle:          
+                    shuffled_info = sshuffle.shuffle_all()        
 
-        func_info = elf_utils.find_functions(opts['exe'])
-        with open(opts['exe'], 'r+b') as f:
-            elffile = ELFFile(f)
-            section = elf_utils.get_elf_section(
-                elffile, stack_map_utils.STACKMAP_SECTION)
-            _, sm_info = stack_map_utils.parse_stack_maps(section, core['entries'][0]['mtype'])
-            sm_base = section['sh_offset']
-            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
-                try:
-                    mv = memoryview(mm).cast('B')
-                    for name, stack_offset in shuffled_info.items():
-                        for info in func_info:
-                            if info['name'] == name:
-                                func_address = info['saddr']['exe_offset']
-                                break
+                func_info = elf_utils.find_functions(opts['exe'])
+                with open(opts['exe'], 'r+b') as f:
+                    elffile = ELFFile(f)
+                    section = elf_utils.get_elf_section(
+                        elffile, stack_map_utils.STACKMAP_SECTION)
+                    _, sm_info = stack_map_utils.parse_stack_maps(section, core['entries'][0]['mtype'])
+                    sm_base = section['sh_offset']
+                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
+                        try:
+                            mv = memoryview(mm).cast('B')
+                            for name, stack_offset in shuffled_info.items():
+                                for info in func_info:
+                                    if info['name'] == name:
+                                        func_address = info['saddr']['exe_offset']
+                                        break
 
-                        for source_offset, (dest_offset, _) in stack_offset.items():
-                            if core['entries'][0]['mtype'] == 'X86_64':
-                                if source_offset in sm_info[func_address]['stack_offsets'].keys():
-                                    sm_offsets = sm_info[func_address]['stack_offsets'][source_offset]
-                                    for sm_offset in sm_offsets:
-                                        mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = dest_offset
-                            else:
-                                tsource_offset = source_offset - (sm_info[func_address]['stack_size'] - 0x10)
-                                tdest_offset = dest_offset - (sm_info[func_address]['stack_size'] - 0x10)
-                                if tsource_offset in sm_info[func_address]['stack_offsets'].keys():
-                                    sm_offsets = sm_info[func_address]['stack_offsets'][tsource_offset]
-                                    for sm_offset in sm_offsets:
-                                        mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = tdest_offset
-                finally:
-                    del mv
-        
-                             
+                                for source_offset, (dest_offset, _) in stack_offset.items():
+                                    if core['entries'][0]['mtype'] == 'X86_64':
+                                        if source_offset in sm_info[func_address]['stack_offsets'].keys():
+                                            sm_offsets = sm_info[func_address]['stack_offsets'][source_offset]
+                                            for sm_offset in sm_offsets:
+                                                mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = dest_offset
+                                    else:
+                                        tsource_offset = source_offset - (sm_info[func_address]['stack_size'] - 0x10)
+                                        tdest_offset = dest_offset - (sm_info[func_address]['stack_size'] - 0x10)
+                                        if tsource_offset in sm_info[func_address]['stack_offsets'].keys():
+                                            sm_offsets = sm_info[func_address]['stack_offsets'][tsource_offset]
+                                            for sm_offset in sm_offsets:
+                                                mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = tdest_offset
+                        finally:
+                            del mv                     
 
 
 def main():
@@ -824,6 +850,14 @@ def main():
                            choices=['code', 'stack'],
                            help='option to examine code (raw/disassembled) or stack frames (raw/verbose)')
     ex_parser.set_defaults(func=examine)
+
+    # StackLayout information
+    ex_parser = subparsers.add_parser('stacklayout', help='examine stack frame layout')
+    ex_parser.add_argument('dir',
+                           help='directory containing criu dump images')
+    ex_parser.add_argument('exe',
+                           help='path to executable')
+    ex_parser.set_defaults(func=stack_layout)
 
     # Stack shuffle
     s_parser = subparsers.add_parser('ss', help='Shuffle stack')
