@@ -5,6 +5,7 @@
 #include <syscall.h>
 #include <string.h>
 #include <sys/ptrace.h>
+#include <pthread.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #ifdef __x86_64__
@@ -324,6 +325,83 @@ int wait_for_threads(pid_t *thread_id, size_t entries)
     return 0;
 }
 
+struct tracee_info {
+    pid_t thread_id;
+    long symbol_addr;
+};
+
+
+long get_regs(pid_t cpid, struct user_regs_struct *regs)
+{
+    long r;
+#ifdef __x86_64__
+    r = ptrace(PTRACE_GETREGS, cpid, 0, regs);
+#endif
+#ifdef __aarch64__
+    r = ptrace(PTRACE_GETREGSET, cpid, 0, regs);
+#endif
+    return r;   
+}
+
+
+void *trace_thread(void *argp)
+{
+    long err, data, symbol_addr;
+    pid_t thread_id;
+    struct user_regs_struct regs;
+    int wait_status;
+
+    struct tracee_info *info = (struct tracee_info *)argp;
+
+    thread_id = info->thread_id;
+    symbol_addr = info->symbol_addr;
+
+    err = ptrace(PTRACE_SEIZE, thread_id, NULL, NULL);
+    if(ptrace < 0) {
+        log_error("PTRACE_SEIZE failed for thread: %d", thread_id);
+        return NULL;
+    }
+    log_info("Thread %d seized", thread_id);
+
+    waitpid(thread_id, &wait_status, 0);
+    log_info("Thread %d: got signal %s", thread_id, \
+            strsignal(WSTOPSIG(wait_status)));
+
+    err = get_regs(thread_id, &regs);
+    if(err < 0) {
+        log_error("Thread %d: failed to get register value", thread_id);
+    }
+
+#ifdef __x86_64__
+    log_info("Thread %d: RIP = 0x%08llu", thread_id, regs.rip);
+    log_info("Thread %d: RBP = 0x%08llu", thread_id, regs.rbp);
+#endif
+#ifdef __aarch64__
+    log_info("Thread %d: PC = 0x%08llu", thread_id, regs.regs[30]);
+    log_info("Thread %d: BP = 0x%08llu", thread_id, regs.regs[29]);
+#endif
+
+    /*
+    err = ptrace(PTRACE_SINGLESTEP, thread_id, NULL, NULL);
+    if(err < 0){
+        log_error("Thread %d: single step %d failed", thread_id, i);
+    }
+    else{
+        log_info("Thread %d: single step %d successful", thread_id, i);
+    }
+    */
+
+    /*
+    err = ptrace(PTRACE_DETACH, thread_id, NULL, NULL);
+    if(ptrace < 0) {
+        log_error("PTRACE_DETACH failed for thread: %d", thread_id);
+    }
+    log_info("Thread %d detached", thread_id);
+    */
+    return NULL;
+}
+
+
 int main(int argc, char **argv)
 {
     int i;
@@ -332,8 +410,11 @@ int main(int argc, char **argv)
     pid_t thread_id[MAX_THREADS];
     char bin_path[MAX_STRING];
     long symbol_addr;
+    long data, r;
+    struct tracee_info info[MAX_THREADS];
     pid_t pid;
-    int err;
+    pthread_t threads[MAX_THREADS];
+    int err, wait_status;
 
     if(argc != 2) {
         log_error("Usage: %s [pid]", argv[0]);
@@ -350,13 +431,16 @@ int main(int argc, char **argv)
         log_info("Thread %d has id: %d", i+1, thread_id[i]);
     }
 
+    
+    /*
     err = attach_to_threads(thread_id, num_threads);
     if(err){
         log_error("Could not attach to all threads!");
         return -1;
     }
     log_info("Attached to all threads!");
-
+    */ 
+    
     ret = get_binary_path(pid, bin_path, MAX_STRING);
     log_info("Binary path found: %s", bin_path);
 
@@ -368,6 +452,20 @@ int main(int argc, char **argv)
     else
         log_info("Symbol %s address: 0x%08lx", INDICATOR, symbol_addr); 
 
+    r = ptrace(PTRACE_ATTACH, pid, NULL, NULL);
+    if(r < 0) {
+        log_error("PTRACE_ATTACH failed");
+        return -1;
+    }
+    log_info("PTRACE_ATTACH successful!");
+
+    waitpid(pid, &wait_status, 0);
+    if(WIFSTOPPED(wait_status))
+        log_info("Process %d got a signal: %s", pid, strsignal(WSTOPSIG(wait_status)));
+    else
+        log_error("Wait");
+
+
     /*
     long data = ptrace(PTRACE_PEEKDATA, pid, symbol_addr, NULL);
     log_info("Data: %ld", data);
@@ -378,23 +476,41 @@ int main(int argc, char **argv)
     if(r < 0) {
         log_error("Could not interrupt");
     } 
+    */
+
+    data = 1;
+
     ptrace(PTRACE_POKEDATA, pid, symbol_addr, (void *)data); 
     log_info("Putting value %ld", data);
 
     data = ptrace(PTRACE_PEEKDATA, pid, symbol_addr, NULL);
     log_info("Read data: %ld", data);
 
-    r = ptrace(PTRACE_CONT, pid, NULL, NULL);
-    if(r < 0) 
-        log_error("Could not continue execution");
-    */
+    r = ptrace(PTRACE_DETACH, pid, NULL, NULL);
+    if(r < 0)
+        log_error("PTRACE_DETACH failed");
+    else
+        log_info("PTRACE_DETACH successful");
 
+    /*
     err = detach_from_threads(thread_id, num_threads);
     if(err){
         log_error("Could not detach from all threads!");
         return -1;
     }
     log_info("Detached from all threads");
+    */
     
+    for(i=0; i<num_threads; i++) {
+        info[i].thread_id = thread_id[i];
+        info[i].symbol_addr = symbol_addr;
+
+        pthread_create(&threads[i], NULL, trace_thread, (void *)&info[i]);
+    }
+
+    for(i=0; i <num_threads; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
     return 0;
 }
