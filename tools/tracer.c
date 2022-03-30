@@ -26,7 +26,24 @@
 #define MAX_STRING 1024
 
 #define INDICATOR "__indicator"
+#define CHECK_MIGRATE "check_migrate"
 
+#ifdef __x86_64__
+#define DIFF 47
+#endif
+#ifdef __aarch64__
+#define DIFF 52
+#endif
+
+struct symbol_addresses {
+    long indicator_addr;
+    long check_migrate_addr;
+};
+
+
+static pthread_mutex_t lock;
+static volatile int flag = 0;
+static volatile int trace_done = 0;
 
 /*
  * Finds the thread ids of the given pid from the proc file system.
@@ -83,76 +100,6 @@ int get_thread_ids(pid_t *thread_id, pid_t pid, size_t *entries, size_t max_size
     if(closedir(dir))
         return -ENOTSUP;
 
-    return 0;
-}
-
-
-/*
- * Attempts to attach to threads.
- *
- * thread_id: pointer to buffer containing thread ids to attach to.
- * entries: number of threads in the buffer.
- *
- * return: error code.
- */
-int attach_to_threads(pid_t *thread_id, size_t entries)
-{
-    int i;
-    long ret;
-    for(i = 0; i < entries; i++) {
-        while(1) {
-            ret = ptrace(PTRACE_ATTACH, thread_id[i], NULL, NULL);
-            if(ret == -1L && (errno == ESRCH || errno == EBUSY || \
-                        errno == EFAULT)) {
-                sched_yield();
-                continue;
-            }
-            break;
-        }
-        if(ret == -1L) {
-            for(int j = 0; j < i; j++) {
-                while(1) {
-                    ret = ptrace(PTRACE_DETACH, thread_id[j], NULL, NULL);
-                    if( ret == -1L && (errno == ESRCH || errno == EBUSY || \
-                                errno == EFAULT)) {
-                        sched_yield();
-                        continue;
-                    }
-                    break;
-                }
-            }
-            return -ENOTSUP;
-        }
-    }
-    return 0;
-}
-
-
-/*
- * Attempts to detach from threads.
- *
- * thread_id: pointer to buffer containing thread ids to detach from.
- * entries: num of threads in the buffer.
- *
- * return: error code.
- */
-int detach_from_threads(pid_t *thread_id, size_t entries)
-{
-    int i;
-    long ret;
-
-    for(i = 0; i < entries; i++) {
-        while(1) {
-            ret = ptrace(PTRACE_DETACH, thread_id[i], NULL, NULL);
-            if(ret == -1L && (errno == ESRCH || errno == EBUSY || errno == EFAULT)) {
-                sched_yield();
-                continue;
-            }
-            break;
-        }
-        if(ret == -1L)
-            return -ENOTSUP;
-    }
     return 0;
 }
 
@@ -256,7 +203,8 @@ char * read_section64(int32_t fd, Elf64_Shdr sh)
 } 
 
 
-long get_symbol_addr(const char *bin_path, const char *symbol)
+int get_symbol_addr(const char *bin_path, const char *symbol, \
+        const char *symbol2, struct symbol_addresses *addrs)
 {
     Elf32_Ehdr eh;
     Elf64_Ehdr eh64;
@@ -304,12 +252,14 @@ long get_symbol_addr(const char *bin_path, const char *symbol)
 
             for(j = 0; j < symbol_count; j++) {
                 if(strcmp((str_tbl + sym_tbl[j].st_name), symbol) == 0)
-                    return sym_tbl[j].st_value;
+                    addrs->indicator_addr = sym_tbl[j].st_value;
+                if(strcmp((str_tbl + sym_tbl[j].st_name), symbol2) == 0)
+                    addrs->check_migrate_addr = sym_tbl[j].st_value;
             }
         }
     }
    
-    return -1;
+    return 0;
 }
 
 
@@ -327,7 +277,9 @@ int wait_for_threads(pid_t *thread_id, size_t entries)
 
 struct tracee_info {
     pid_t thread_id;
+    pid_t pid;
     long symbol_addr;
+    int num_threads;
 };
 
 
@@ -343,18 +295,88 @@ long get_regs(pid_t cpid, struct user_regs_struct *regs)
     return r;   
 }
 
+long set_regs(pid_t pid, struct user_regs_struct *regs)
+{
+    long r;
+#ifdef __x86_64__
+    r = ptrace(PTRACE_SETREGS, pid, 0, regs);
+#endif
+#ifdef __aarch64__
+    r = ptrace(PTRACE_SETREGSET, pid, 0, regs);
+#endif
+    return r;
+}
+
+long set_breakpoint(pid_t pid, long addr)
+{
+    long data = ptrace(PTRACE_PEEKTEXT, pid, (void *)addr, 0);
+
+    // Write trap instruction
+#ifdef __x86_64__
+    long trap = (data & 0xFFFFFF00) | 0xCC;
+#endif
+#ifdef __aarch64__
+    long trap = 0xd4200000;
+#endif
+    ptrace(PTRACE_POKETEXT, pid, (void *)addr, (void *)trap);
+    log_info("Thread %d: breakpoint place at 0x%08lx", pid, addr);
+
+    return data;
+}
+
+
+void remove_trap(pid_t pid, long addr)
+{
+    long d;
+    d = ptrace(PTRACE_PEEKTEXT, pid, (void *)addr, NULL);
+#ifdef __x86_64__
+    long data = (d & 0xFFFFFF00) | 0x90;
+#endif
+#ifdef __aarch64__
+    long data = 0xe1a00000;
+#endif
+    ptrace(PTRACE_POKETEXT, pid, (void *)addr, (void *)data);
+}
+    
+
+void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struct user_regs_struct *regs)
+{
+    ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)data);
+#ifdef __aarch64__
+    regs->pc -= 1;
+    ptrace(PTRACE_SETREGSET, cpid, 0, regs);
+#endif
+#ifdef __x86_64__
+    regs->rip -= 1;
+    ptrace(PTRACE_SETREGS, cpid, 0, regs);
+#endif
+}
+
+
+void suspend(pid_t pid)
+{
+    if(kill(pid, SIGSTOP) != 0)
+        log_error("SIGSTOP");
+}
+
 
 void *trace_thread(void *argp)
 {
-    long err, data, symbol_addr;
+    long err, data, brk_addr, indicator_addr, instr, ret_add_loc, ret_addr;
     pid_t thread_id;
+    pid_t pid;
     struct user_regs_struct regs;
-    int wait_status;
+    int wait_status, flag_local, trace_done_local, num_threads;
+
+    flag_local = 0;
+    trace_done_local = 0;
 
     struct tracee_info *info = (struct tracee_info *)argp;
 
     thread_id = info->thread_id;
-    symbol_addr = info->symbol_addr;
+    pid = info->pid;
+    indicator_addr = info->symbol_addr;
+    num_threads = info->num_threads;
 
     err = ptrace(PTRACE_SEIZE, thread_id, NULL, NULL);
     if(ptrace < 0) {
@@ -370,34 +392,115 @@ void *trace_thread(void *argp)
     err = get_regs(thread_id, &regs);
     if(err < 0) {
         log_error("Thread %d: failed to get register value", thread_id);
+        return NULL;
     }
 
 #ifdef __x86_64__
-    log_info("Thread %d: RIP = 0x%08llu", thread_id, regs.rip);
-    log_info("Thread %d: RBP = 0x%08llu", thread_id, regs.rbp);
+    log_info("Thread %d: RIP = 0x%08llx", thread_id, regs.rip);
+    log_info("Thread %d: RBP = 0x%08llx", thread_id, regs.rbp);
+    ret_add_loc = regs.rbp + 8;
+    regs.rip -= 1;
+    brk_addr = regs.rip;
 #endif
 #ifdef __aarch64__
-    log_info("Thread %d: PC = 0x%08llu", thread_id, regs.regs[30]);
-    log_info("Thread %d: BP = 0x%08llu", thread_id, regs.regs[29]);
+    log_info("Thread %d: PC = 0x%08llx", thread_id, regs.regs[30]);
+    log_info("Thread %d: BP = 0x%08llx", thread_id, regs.regs[29]);
+    ret_add_loc = regs.regs[29] + 8;
+    regs.pc -= 4;
+    brk_addr = regs.pc;
 #endif
 
-    /*
-    err = ptrace(PTRACE_SINGLESTEP, thread_id, NULL, NULL);
-    if(err < 0){
-        log_error("Thread %d: single step %d failed", thread_id, i);
-    }
-    else{
-        log_info("Thread %d: single step %d successful", thread_id, i);
-    }
-    */
+    ret_addr = ptrace(PTRACE_PEEKDATA, thread_id, (void *)ret_add_loc, NULL);       
+    log_info("Thread %d: Value at BP+0x8: 0x%08lx", thread_id, ret_addr);
 
-    /*
-    err = ptrace(PTRACE_DETACH, thread_id, NULL, NULL);
-    if(ptrace < 0) {
-        log_error("PTRACE_DETACH failed for thread: %d", thread_id);
+    /* main thread */
+    if(pid == thread_id) {
+        data = -1;
+        instr = ptrace(PTRACE_PEEKTEXT, thread_id, brk_addr, NULL);
+        log_info("Thread %d: addr: 0x%08lx opcode 0x%08lx", thread_id, \
+                brk_addr, instr);
+        remove_trap(pid, brk_addr);
+        log_info("Thread %d: trap removed!", thread_id);
+        err = ptrace(PTRACE_POKEDATA, pid, indicator_addr, (void *)data);
+        if(err < 0) {
+            log_error("Thread %d: could not restore indicator value!", thread_id);
+            return NULL;
+        }
+        log_info("Thread %d: indicator value restored!", thread_id);
+        pthread_mutex_lock(&lock);
+        flag = 1;
+        pthread_mutex_unlock(&lock);
     }
-    log_info("Thread %d detached", thread_id);
-    */
+
+    while(flag_local == 0) {
+        sched_yield();
+        pthread_mutex_lock(&lock);
+        flag_local = flag;
+        pthread_mutex_unlock(&lock);
+    }
+
+    err = set_regs(thread_id, &regs);
+    if(err < 0) {
+        log_error("Thread %d: failed to set register values", thread_id);
+        return NULL;
+    }
+    log_info("Thread %d: instruction pointer updated!", thread_id);
+
+    pthread_mutex_lock(&lock);
+    data = set_breakpoint(thread_id, ret_addr);
+
+    err = ptrace(PTRACE_CONT, thread_id, NULL, NULL);
+    if (err < 0){
+        log_error("Thread %d: PTRACE_CONT failed", thread_id);
+        return NULL;
+        pthread_mutex_unlock(&lock);
+    }
+    log_info("Thread %d: continuing", thread_id);
+    
+    waitpid(thread_id, &wait_status, 0);
+    log_info("Thread %d: got signal %s", thread_id, \
+            strsignal(WSTOPSIG(wait_status)));
+
+    err = get_regs(thread_id, &regs);     
+    if(err < 0) {
+        log_error("Thread %d: get regs failed", thread_id);
+        pthread_mutex_unlock(&lock);
+        return NULL;
+    }
+
+    remove_breakpoint(thread_id, ret_addr, data, &regs);
+    log_info("Thread %d: breakpoint removed", thread_id);
+
+    trace_done += 1;
+    pthread_mutex_unlock(&lock);
+
+    while(trace_done_local < num_threads) {
+        sched_yield();
+        pthread_mutex_lock(&lock);
+        trace_done_local = trace_done;
+        pthread_mutex_unlock(&lock);
+    }
+
+    log_info("Thread %d: all tracee threads processed!", thread_id);
+
+    while((pid != thread_id) && flag_local == 1) {
+        sched_yield();
+        pthread_mutex_lock(&lock);
+        flag_local = flag;
+        pthread_mutex_unlock(&lock);
+    }
+
+    if(pid != thread_id)
+        return NULL;
+
+    suspend(pid);
+
+    log_info("Thread %d: process suspended", thread_id);
+
+    pthread_mutex_lock(&lock);
+    flag = 0;
+    pthread_mutex_unlock(&lock);
+
     return NULL;
 }
 
@@ -409,7 +512,7 @@ int main(int argc, char **argv)
     ssize_t ret;
     pid_t thread_id[MAX_THREADS];
     char bin_path[MAX_STRING];
-    long symbol_addr;
+    struct symbol_addresses sa; 
     long data, r;
     struct tracee_info info[MAX_THREADS];
     pid_t pid;
@@ -431,26 +534,19 @@ int main(int argc, char **argv)
         log_info("Thread %d has id: %d", i+1, thread_id[i]);
     }
 
-    
-    /*
-    err = attach_to_threads(thread_id, num_threads);
-    if(err){
-        log_error("Could not attach to all threads!");
-        return -1;
-    }
-    log_info("Attached to all threads!");
-    */ 
-    
     ret = get_binary_path(pid, bin_path, MAX_STRING);
     log_info("Binary path found: %s", bin_path);
 
     
-    symbol_addr = get_symbol_addr(bin_path, INDICATOR);
-    if(symbol_addr <= 0) {
+    err  = get_symbol_addr(bin_path, INDICATOR, CHECK_MIGRATE, &sa);
+    if(err < 0) {
         log_error("Error finding symbol %s address", INDICATOR);
+        return -1;
     }
-    else
-        log_info("Symbol %s address: 0x%08lx", INDICATOR, symbol_addr); 
+    else {
+        log_info("Symbol %s address: 0x%08lx", INDICATOR, sa.indicator_addr); 
+        log_info("Symbol %s address: 0x%08lx", CHECK_MIGRATE, sa.check_migrate_addr);
+    }
 
     r = ptrace(PTRACE_ATTACH, pid, NULL, NULL);
     if(r < 0) {
@@ -465,25 +561,12 @@ int main(int argc, char **argv)
     else
         log_error("Wait");
 
-
-    /*
-    long data = ptrace(PTRACE_PEEKDATA, pid, symbol_addr, NULL);
-    log_info("Data: %ld", data);
-
-    data = 10;
-
-    long r =  ptrace(PTRACE_INTERRUPT, pid, NULL, NULL);
-    if(r < 0) {
-        log_error("Could not interrupt");
-    } 
-    */
-
     data = 1;
 
-    ptrace(PTRACE_POKEDATA, pid, symbol_addr, (void *)data); 
+    ptrace(PTRACE_POKEDATA, pid, sa.indicator_addr, (void *)data); 
     log_info("Putting value %ld", data);
 
-    data = ptrace(PTRACE_PEEKDATA, pid, symbol_addr, NULL);
+    data = ptrace(PTRACE_PEEKDATA, pid, sa.indicator_addr, NULL);
     log_info("Read data: %ld", data);
 
     r = ptrace(PTRACE_DETACH, pid, NULL, NULL);
@@ -492,18 +575,13 @@ int main(int argc, char **argv)
     else
         log_info("PTRACE_DETACH successful");
 
-    /*
-    err = detach_from_threads(thread_id, num_threads);
-    if(err){
-        log_error("Could not detach from all threads!");
-        return -1;
-    }
-    log_info("Detached from all threads");
-    */
-    
+    pthread_mutex_init(&lock, NULL);
+
     for(i=0; i<num_threads; i++) {
         info[i].thread_id = thread_id[i];
-        info[i].symbol_addr = symbol_addr;
+        info[i].pid = pid;
+        info[i].symbol_addr = sa.indicator_addr;
+        info[i].num_threads = num_threads;
 
         pthread_create(&threads[i], NULL, trace_thread, (void *)&info[i]);
     }
@@ -511,6 +589,8 @@ int main(int argc, char **argv)
     for(i=0; i <num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
+
+    pthread_mutex_destroy(&lock);
 
     return 0;
 }
