@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/user.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <errno.h>
 #include <dirent.h>
@@ -277,14 +278,20 @@ struct tracee_info {
 long get_regs(pid_t cpid, struct user_regs_struct *regs)
 {
     long r;
-    r = ptrace(PTRACE_GETREGS, cpid, 0, regs);
+    struct iovec io;
+    io.iov_base = regs;
+    io.iov_len = sizeof(struct user_regs_struct);
+    r = ptrace(PTRACE_GETREGSET, cpid, (void *)NT_PRSTATUS, (void *)&io);
     return r;   
 }
 
 long set_regs(pid_t pid, struct user_regs_struct *regs)
 {
     long r;
-    r = ptrace(PTRACE_SETREGS, pid, 0, regs);
+    struct iovec io;
+    io.iov_base = regs;
+    io.iov_len = sizeof(struct user_regs_struct);
+    r = ptrace(PTRACE_SETREGSET, pid, (void *)NT_PRSTATUS, (void *)&io);
     return r;
 }
 
@@ -323,6 +330,9 @@ void remove_trap(pid_t pid, long addr)
 void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struct user_regs_struct *regs)
 {
     ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)data);
+     struct iovec io;
+    io.iov_base = regs;
+    io.iov_len = sizeof(struct user_regs_struct);
 #ifdef __aarch64__
     regs->pc -= 1;
 #endif
