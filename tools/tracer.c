@@ -339,7 +339,7 @@ void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struc
 #ifdef __x86_64__
     regs->rip -= 1;
 #endif
-    ptrace(PTRACE_SETREGS, cpid, 0, regs);
+    ptrace(PTRACE_SETREGSET, cpid, (void *)NT_PRSTATUS, (void *)&io);
 }
 
 
