@@ -8,9 +8,6 @@
 #include <pthread.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#ifdef __x86_64__
-#include <sys/reg.h>
-#endif
 #include <sys/user.h>
 #include <unistd.h>
 #include <errno.h>
@@ -28,12 +25,6 @@
 #define INDICATOR "__indicator"
 #define CHECK_MIGRATE "check_migrate"
 
-#ifdef __x86_64__
-#define DIFF 47
-#endif
-#ifdef __aarch64__
-#define DIFF 52
-#endif
 
 struct symbol_addresses {
     long indicator_addr;
@@ -286,24 +277,14 @@ struct tracee_info {
 long get_regs(pid_t cpid, struct user_regs_struct *regs)
 {
     long r;
-#ifdef __x86_64__
     r = ptrace(PTRACE_GETREGS, cpid, 0, regs);
-#endif
-#ifdef __aarch64__
-    r = ptrace(PTRACE_GETREGSET, cpid, 0, regs);
-#endif
     return r;   
 }
 
 long set_regs(pid_t pid, struct user_regs_struct *regs)
 {
     long r;
-#ifdef __x86_64__
     r = ptrace(PTRACE_SETREGS, pid, 0, regs);
-#endif
-#ifdef __aarch64__
-    r = ptrace(PTRACE_SETREGSET, pid, 0, regs);
-#endif
     return r;
 }
 
@@ -344,12 +325,11 @@ void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struc
     ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)data);
 #ifdef __aarch64__
     regs->pc -= 1;
-    ptrace(PTRACE_SETREGSET, cpid, 0, regs);
 #endif
 #ifdef __x86_64__
     regs->rip -= 1;
-    ptrace(PTRACE_SETREGS, cpid, 0, regs);
 #endif
+    ptrace(PTRACE_SETREGS, cpid, 0, regs);
 }
 
 
