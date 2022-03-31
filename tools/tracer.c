@@ -321,8 +321,10 @@ void remove_trap(pid_t pid, long addr)
     long data = (d & 0xFFFFFF00) | 0x90;
 #endif
 #ifdef __aarch64__
-    long data = 0xe1a00000;
+    long data = (d & 0xFFFFFFFF00000000) | 0xe1a00000;
 #endif
+    log_info("Thread %d: placing value 0x%08lx at addr 0x%08lx", \
+		    pid, data, addr); 
     ptrace(PTRACE_POKETEXT, pid, (void *)addr, (void *)data);
 }
     
@@ -391,17 +393,16 @@ void *trace_thread(void *argp)
     ret_add_loc = regs.rbp + 8;
     regs.rip -= 1;
     brk_addr = regs.rip;
+    ret_addr = ptrace(PTRACE_PEEKDATA, thread_id, (void *)ret_add_loc, NULL);
+    log_info("Thread %d: Value at BP+0x8: 0x%08lx", thread_id, ret_addr);
 #endif
 #ifdef __aarch64__
-    log_info("Thread %d: PC = 0x%08llx", thread_id, regs.regs[30]);
-    log_info("Thread %d: BP = 0x%08llx", thread_id, regs.regs[29]);
-    ret_add_loc = regs.regs[29] + 8;
-    regs.pc -= 4;
+    log_info("Thread %d: PC = 0x%08llx", thread_id, regs.pc);
+    log_info("Thread %d: x[30] = 0x%08llx", thread_id, regs.regs[30]);
+    ret_addr = regs.regs[30];
     brk_addr = regs.pc;
+    regs.pc -= 4;
 #endif
-
-    ret_addr = ptrace(PTRACE_PEEKDATA, thread_id, (void *)ret_add_loc, NULL);       
-    log_info("Thread %d: Value at BP+0x8: 0x%08lx", thread_id, ret_addr);
 
     /* main thread */
     if(pid == thread_id) {
