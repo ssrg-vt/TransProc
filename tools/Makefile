@@ -1,6 +1,6 @@
 GCC := gcc
 
-all: debugger attach_pid
+all: debugger attach_pid tracer
 
 attach_pid: attach_pid.c
 	$(GCC) -o $@ $<
@@ -8,5 +8,8 @@ attach_pid: attach_pid.c
 debugger: debugger.c
 	$(GCC) -o $@ $<
 
+tracer: tracer.c
+	$(GCC) -pthread -o $@ $<
+
 clean:
-	rm -rf debugger attach_pid
+	rm -rf debugger attach_pid tracer
