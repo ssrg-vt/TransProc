@@ -195,6 +195,13 @@ char * read_section64(int32_t fd, Elf64_Shdr sh)
 } 
 
 
+/*
+ * Navigates through the symbol table of ELF binary pointed to by
+ * bin_path and searches for symbol and symbol2 in the symbol table.
+ * Adds the address of the symbols to the struct pointed by addrs.
+ *
+ * Return: error code. 0 on success.
+ */
 int get_symbol_addr(const char *bin_path, const char *symbol, \
         const char *symbol2, struct symbol_addresses *addrs)
 {
@@ -255,18 +262,6 @@ int get_symbol_addr(const char *bin_path, const char *symbol, \
 }
 
 
-int wait_for_threads(pid_t *thread_id, size_t entries)
-{
-    int i, wait_status;
-
-    for(i = 0; i < entries; i++) {
-        waitpid(thread_id[i], &wait_status, 0);
-        log_info("Thread %d: got signal: %s\n", thread_id[i], \
-                strsignal(wait_status));
-    }
-    return 0;
-}
-
 struct tracee_info {
     pid_t thread_id;
     pid_t pid;
@@ -275,6 +270,11 @@ struct tracee_info {
 };
 
 
+/* Uses ptrace to get the register values in an architecture
+ * independent way.
+ *
+ * Return: error code returned by ptrace.
+ */
 long get_regs(pid_t cpid, struct user_regs_struct *regs)
 {
     long r;
@@ -285,6 +285,13 @@ long get_regs(pid_t cpid, struct user_regs_struct *regs)
     return r;   
 }
 
+
+/*
+ * Uses ptrace to set the register vaues in an architecture 
+ * independent way.
+ *
+ * Return: error code returned by ptrace.
+ */
 long set_regs(pid_t pid, struct user_regs_struct *regs)
 {
     long r;
@@ -295,6 +302,13 @@ long set_regs(pid_t pid, struct user_regs_struct *regs)
     return r;
 }
 
+
+/*
+ * Sets a breakpoint on the addr pointed to by addr.
+ *
+ * Return: Original instruction at the address used to restore after
+ * removing the breakpoint.
+ */
 long set_breakpoint(pid_t pid, long addr)
 {
     long data = ptrace(PTRACE_PEEKTEXT, pid, (void *)addr, 0);
@@ -313,6 +327,10 @@ long set_breakpoint(pid_t pid, long addr)
 }
 
 
+/* 
+ * Removes the compiler placed trap and replaces it with a NOP instruction.
+ * Implemented for aarch64 and x86-64.
+ */
 void remove_trap(pid_t pid, long addr)
 {
     long d;
@@ -329,15 +347,15 @@ void remove_trap(pid_t pid, long addr)
 }
     
 
+/*
+ * Removes breakpoint at addr and replaces it with value data.
+ */
 void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struct user_regs_struct *regs)
 {
     ptrace(PTRACE_POKETEXT, cpid, (void *)addr, (void *)data);
      struct iovec io;
     io.iov_base = regs;
     io.iov_len = sizeof(struct user_regs_struct);
-#ifdef __aarch64__
-    regs->pc -= 1;
-#endif
 #ifdef __x86_64__
     regs->rip -= 1;
 #endif
@@ -345,6 +363,9 @@ void remove_breakpoint(pid_t cpid, unsigned long addr, unsigned long data, struc
 }
 
 
+/*
+ * Sends SIGSTOP to the process pid.
+ */
 void suspend(pid_t pid)
 {
     if(kill(pid, SIGSTOP) != 0)
@@ -352,6 +373,17 @@ void suspend(pid_t pid)
 }
 
 
+/*
+ * To be called right after changing the __indicator value.
+ * This is a method written to be utilized on a per tracee thread basis.
+ * Each tracee thread is first waited on to be trapped by the compiler
+ * placed breakpoint within the check_migrate function. Once hit, the main
+ * thread is used to remove the compiler placed trap from the process 
+ * address space and to restore the __indicator value. Once done, all threads
+ * take turns to bring their tracee threads on the return address which also
+ * is the migration point. Then the main thread suspends the process in that
+ * state and exits.
+ */
 void *trace_thread(void *argp)
 {
     long err, data, brk_addr, indicator_addr, instr, ret_add_loc, ret_addr;
@@ -370,6 +402,7 @@ void *trace_thread(void *argp)
     indicator_addr = info->symbol_addr;
     num_threads = info->num_threads;
 
+    /* SEIZE the tracee thread */
     err = ptrace(PTRACE_SEIZE, thread_id, NULL, NULL);
     if(ptrace < 0) {
         log_error("PTRACE_SEIZE failed for thread: %d", thread_id);
@@ -377,6 +410,7 @@ void *trace_thread(void *argp)
     }
     log_info("Thread %d seized", thread_id);
 
+    /* Wait for the compiler placed breakpoint to hit */
     waitpid(thread_id, &wait_status, 0);
     log_info("Thread %d: got signal %s", thread_id, \
             strsignal(WSTOPSIG(wait_status)));
@@ -387,6 +421,7 @@ void *trace_thread(void *argp)
         return NULL;
     }
 
+    /* Get the migration point info */
 #ifdef __x86_64__
     log_info("Thread %d: RIP = 0x%08llx", thread_id, regs.rip);
     log_info("Thread %d: RBP = 0x%08llx", thread_id, regs.rbp);
@@ -404,7 +439,7 @@ void *trace_thread(void *argp)
     regs.pc -= 4;
 #endif
 
-    /* main thread */
+    /* main thread only. Remove compiler placed trap, restore indicator val*/
     if(pid == thread_id) {
         data = -1;
         instr = ptrace(PTRACE_PEEKTEXT, thread_id, brk_addr, NULL);
@@ -423,6 +458,7 @@ void *trace_thread(void *argp)
         pthread_mutex_unlock(&lock);
     }
 
+    /* Wait for main thread to remove compiler placed trap */
     while(flag_local == 0) {
         sched_yield();
         pthread_mutex_lock(&lock);
@@ -437,6 +473,7 @@ void *trace_thread(void *argp)
     }
     log_info("Thread %d: instruction pointer updated!", thread_id);
 
+    /* Take turns to get your tracee thread to the migration point */
     pthread_mutex_lock(&lock);
     data = set_breakpoint(thread_id, ret_addr);
 
@@ -465,6 +502,7 @@ void *trace_thread(void *argp)
     trace_done += 1;
     pthread_mutex_unlock(&lock);
 
+    /* Wait till all tracee threads are processed */
     while(trace_done_local < num_threads) {
         sched_yield();
         pthread_mutex_lock(&lock);
@@ -474,6 +512,7 @@ void *trace_thread(void *argp)
 
     log_info("Thread %d: all tracee threads processed!", thread_id);
 
+    /* Wait for the main thread to suspend the process */
     while((pid != thread_id) && flag_local == 1) {
         sched_yield();
         pthread_mutex_lock(&lock);
@@ -481,9 +520,11 @@ void *trace_thread(void *argp)
         pthread_mutex_unlock(&lock);
     }
 
+    /* If not main thread, exit from here */
     if(pid != thread_id)
         return NULL;
 
+    /* If main thread, suspend the process and then exit. */
     suspend(pid);
 
     log_info("Thread %d: process suspended", thread_id);
@@ -496,6 +537,12 @@ void *trace_thread(void *argp)
 }
 
 
+/* 
+ * Uses proc file system to read number of tracee threads and the binary
+ * path in the file system. Parses symbol table to get __indicator address.
+ * Changes the __indicator value to indicate migration to the binary and then
+ * spawns one thread per tracee thread to process them.
+ */
 int main(int argc, char **argv)
 {
     int i;
