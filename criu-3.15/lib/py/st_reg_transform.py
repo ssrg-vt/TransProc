@@ -25,6 +25,8 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
             src_act_regset = reg_aarch64.RegsetAarch64()
             dest_act_regset = reg_x86_64.RegsetX8664()
         src_cs = src_handle.get_call_site_from_addr(src_pc)
+        if not src_cs:
+            break
         dest_cs = dest_handle.get_call_site_from_id(src_cs.id)
         if len(dest_rewrite_ctx.activations) > 0:
             dest_bp += dest_cs.frame_size
@@ -236,8 +238,8 @@ def _get_val(ctx, val, arch=False, return_loc = False):
     regops = ctx.st_handle.regops
     sp = regops['sp'](ctx.regset)
     if val.type == definitions.SM_REGISTER:
-        # TODO: Determine whether ctx or act
-        return regops['reg_val'](val.regnum, ctx.regset)
+        # TODO: Determine whether ctx or act #Determined act.
+        return regops['reg_val'](val.regnum, act.regset)
     elif val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT:
         st_addr = regops['reg_val'](
             val.regnum, act.regset) + val.offset_or_const

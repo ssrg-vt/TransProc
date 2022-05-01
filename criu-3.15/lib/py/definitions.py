@@ -79,13 +79,19 @@ class StHandle:
     
     def get_call_site_from_addr(self, address):
         #TODO implement binary search
-        cs = [c for c in self.call_sites_addr if c.addr == address][0]
-        return cs
+        cs = [c for c in self.call_sites_addr if c.addr == address]
+        if cs:
+            return cs[0]
+        else:
+            return None
 
     def get_call_site_from_id(self, id):
         #TODO implement binary search
-        cs = [c for c in self.call_sites_id if c.id == id][0]
-        return cs
+        cs = [c for c in self.call_sites_id if c.id == id]
+        if cs:
+            return cs[0]
+        else:
+            return None
 
 
 class Activation:
