@@ -26,8 +26,8 @@ void func_path_b(int cnt)
  */
 int main(int argc, char *argv[])
 {
-    int i = 0, cnt = 5;
-    int flags, opt;
+    int cnt = 5;
+    int flags=2, opt;
 
     /**
      * @brief Simulate a multi-option program.
@@ -51,10 +51,9 @@ int main(int argc, char *argv[])
     }
     printf("pid: %d, cnt: %d \n", getpid(), cnt);
 
-    if (flags == 1) func_path_a(5);
-    if (flags == 2) func_path_b(5);
+    if (flags == 1) func_path_a(cnt);
+    if (flags == 2) func_path_b(cnt);
 
-    func_path_b(cnt);
     printf("%s: Finish the loop...\n", __func__);
     return 0;
 }
