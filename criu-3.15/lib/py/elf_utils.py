@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
 from elftools.elf.elffile import ELFFile
 import os
 

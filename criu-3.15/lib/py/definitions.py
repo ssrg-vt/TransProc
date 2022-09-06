@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
 from pycriu import stack_map_utils
 from pycriu import elf_utils
 from . import regops

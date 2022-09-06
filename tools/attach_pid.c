@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Abhishek Bapat. SSRG, Virginia Tech.
+ * abapat28@vt.edu
+ */
+
 #include <stdlib.h>
 #include <stdarg.h>
 #include <stdio.h>
