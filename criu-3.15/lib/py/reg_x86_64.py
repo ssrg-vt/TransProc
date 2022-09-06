@@ -1,4 +1,9 @@
 """
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
+"""
 DWARF register mappings
 """
 
