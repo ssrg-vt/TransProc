@@ -99,6 +99,7 @@ struct cr_options {
 	int			restore_sibling;
 	bool			ext_unix_sk;
 	int			shell_job;
+    bool         het;
 	int			handle_file_locks;
 	int			tcp_established_ok;
 	int			tcp_close;

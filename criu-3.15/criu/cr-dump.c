@@ -1363,6 +1363,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 	mdc.stat = &pps_buf;
 	mdc.parent_ie = parent_ie;
 
+    //TODO: memory  and register should be transformed before this step.
 	ret = parasite_dump_pages_seized(item, &vmas, &mdc, parasite_ctl);
 	if (ret)
 		goto err_cure;
@@ -1385,6 +1386,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 		goto err_cure;
 	}
 
+    //TODO: check for het flag and dump transformed core instead.
 	ret = dump_task_core_all(parasite_ctl, item, &pps_buf, cr_imgset, &misc);
 	if (ret) {
 		pr_err("Dump core (pid: %d) failed with %d\n", pid, ret);
@@ -1397,6 +1399,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 		goto err_cure;
 	}
 
+    //TODO: check if any change needed in here.
 	ret = dump_task_threads(parasite_ctl, item);
 	if (ret) {
 		pr_err("Can't dump threads\n");
@@ -1416,6 +1419,7 @@ static int dump_one_task(struct pstree_item *item, InventoryEntry *parent_ie)
 		goto err;
 	}
 
+    //TODO: change mm before dumping.
 	ret = dump_task_mm(pid, &pps_buf, &misc, &vmas, cr_imgset);
 	if (ret) {
 		pr_err("Dump mappings (pid: %d) failed with %d\n", pid, ret);

@@ -541,6 +541,7 @@ int parse_options(int argc, char **argv, bool *usage_error,
 		{ "cgroup-yard",		required_argument,	0, 1096 },
 		{ "pre-dump-mode",		required_argument,	0, 1097},
 		{ "file-validation",		required_argument,	0, 1098	},
+		{ "het",		no_argument,	0, 1099	},
 		{ },
 	};
 
@@ -870,6 +871,9 @@ int parse_options(int argc, char **argv, bool *usage_error,
 			if (parse_file_validation_method(&opts, optarg))
 				return 2;
 			break;
+        case 1099:
+            opts.het = true;
+            break;
 		case 'V':
 			pr_msg("Version: %s\n", CRIU_VERSION);
 			if (strcmp(CRIU_GITID, "0"))
@@ -907,7 +911,8 @@ int check_options(void)
 		pr_info("Will allow link remaps on FS\n");
 	if (opts.weak_sysctls)
 		pr_info("Will skip non-existant sysctls on restore\n");
-
+    if (opts.het)
+        pr_info("Will transform for heterogeneous ISA migration\n");
 	if (opts.deprecated_ok)
 		pr_info("Turn deprecated stuff ON\n");
 	else if (getenv("CRIU_DEPRECATED")) {

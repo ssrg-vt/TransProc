@@ -88,6 +88,7 @@ extern int parse_self_maps_lite(struct vm_area_list *vms);
 #define vma_area_len(vma_area)		vma_entry_len((vma_area)->e)
 #define vma_entry_is(vma, s)		(((vma)->status & (s)) == (s))
 #define vma_entry_len(vma)		((vma)->end - (vma)->start)
+#define vma_entry_prot_is(vma, p)     ((vma->prot & (p)) == (p))
 
 /*
  * vma_premmaped_start() can be used only in restorer.
