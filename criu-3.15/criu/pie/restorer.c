@@ -1009,9 +1009,13 @@ static int vma_remap(VmaEntry *vma_entry, int uffd)
 	 * pages, so that the processes will hang until the memory is
 	 * injected via userfaultfd.
 	 */
-	if (vma_entry_can_be_lazy(vma_entry))
-		if (enable_uffd(uffd, dst, len) != 0)
-			return -1;
+	if (vma_entry_can_be_lazy(vma_entry)){
+		//skipping stack pages for lazy-migration
+		if(!(vma_entry->flags & MAP_GROWSDOWN)){
+			if (enable_uffd(uffd, dst, len) != 0)
+				return -1;
+		}
+	}
 
 	return 0;
 }

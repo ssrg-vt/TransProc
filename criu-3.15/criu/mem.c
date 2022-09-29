@@ -183,8 +183,12 @@ static int generate_iovs(struct pstree_item *item, struct vma_area *vma, struct 
 
 		vaddr = vma->e->start + *off + pfn * PAGE_SIZE;
 
-		if (vma_entry_can_be_lazy(vma->e) && !is_stack(item, vaddr))
-			ppb_flags |= PPB_LAZY;
+		if (vma_entry_can_be_lazy(vma->e) && !is_stack(item, vaddr)){
+		    //Skipping stack pages for lazy-migration
+			if(!(vma->e->flags & MAP_GROWSDOWN)){
+				ppb_flags |= PPB_LAZY;
+			}
+		}
 
 		/*
 		 * If we're doing incremental dump (parent images
