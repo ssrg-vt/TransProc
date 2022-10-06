@@ -61,7 +61,7 @@ def edit(opts):
         j_expr.find(img)
         f.write("Provide value to write.\n")
         val = sys.stdin.readline().rstrip()
-        if unicode(val).isnumeric():
+        if str(val).isnumeric():
             val = int(val)
         j_expr.update(img, val)
     pycriu.images.dump(img, open(opts['in'], 'wb'))

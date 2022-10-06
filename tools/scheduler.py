@@ -1,4 +1,3 @@
-from multiprocessing.pool import RUN
 import paramiko
 import os
 import sys
@@ -6,6 +5,7 @@ import subprocess
 import logging
 import threading
 import time
+import psutil
 
 from scp import SCPClient
 
@@ -18,17 +18,19 @@ HOST = 1
 USER = 2
 PASSWD = 3
 PORT = 4
+TPATH = 5
 
-BT = 0
-CG = 1
-EP = 2
-MG = 3
+BT = "bt"
+CG = "cg"
+EP = "ep"
+MG = "mg"
 
 ARM_BOARD1 = {
     HOST : "127.0.0.1",
     USER : "root",
     PASSWD : "ubuntu",
-    PORT : 5556
+    PORT : 5556,
+    TPATH: "/home/abhishek/projects/TranProc"
 }
 
 BOARDS = [ARM_BOARD1]
@@ -41,7 +43,7 @@ ADDRESSES = {
 }
 
 class SshClient:
-    def __init__(self, host, user, passwd, port) -> None:
+    def __init__(self, host, user, passwd, port):
         self.host = host
         self.user = user
         self.passwd = passwd
@@ -81,9 +83,10 @@ class SshClient:
 
 class LocalThread (threading.Thread):
     #Constantly keep running the job provided and measure thread throughput
-    def __init__(self, jobPath):
+    def __init__(self, jobSet, threadId):
         threading.Thread.__init__(self)
-        self.jobPath = jobPath
+        self.jobSetIdx = threadId
+        self.jobSet = jobSet
         self.actualRunDuration = 0
         self.counter = 0
 
@@ -99,9 +102,127 @@ class LocalThread (threading.Thread):
                 break
 
     def _runJobSet(self):
-        subprocess.run(self.jobPath,
+        self.jobSetIdx %= len(self.jobSet)
+        subprocess.run(self.jobSet[self.jobSetIdx],
                        stdout=subprocess.DEVNULL,
                        stderr=subprocess.STDOUT)
+        self.jobSetIdx += 1
+            
+
+JOBSET1 = []
+JOBSET2 = []
+JOBSET3 = []
+
+JOBSET = {
+    0: (JOBSET1, 0),
+    1: (JOBSET2, 0) ,
+    2: (JOBSET3, 0),
+}
+
+class RemoteThread (threading.Thread):
+    #runs 1 SSH connection per thread
+    #runs on a shared global remote job set
+    #1. SCP the job set on the destination node from src node
+    #2. run an SSH command to run the job remotely
+    #3. Similar logic implemented in local thread to keep track of all the job run
+    def __init__(self, jobSetID, lock, host, user, passwd, port, tpath):
+        self.client = SshClient(host, user, passwd, port)
+        self.jobSetId = jobSetID
+        self.lock = lock
+        self.rootDir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.criu = os.path.join(self.rootDir, "criu-3.15", "criu", "criu")
+        self.crit = os.path.join(self.rootDir, "criu-3.15", "crit", "crit")
+        self.actualRunDuration = 0
+        self.counter = 0
+    
+    def _getJobPath(self):
+        with self.lock:
+            job = JOBSET[self.jobSetId][0][JOBSET[self.jobSetId][1]]
+            JOBSET[self.jobSetId][1] += 1
+            JOBSET[self.jobSetId][1] %= len(JOBSET[self.jobSetId][0])
+        return job
+    
+    def _run(self):
+        jobPath = self._getJobPath() #"/home/abhishek/bt/bt"
+        aarch64Dir = os.path.join(os.path.dirname(jobPath), "aarch64")
+        srcDir = os.path.dirname(jobPath)
+        destDir = "/temp/null/" #os.path.dirname(jobPath)
+        fn = os.path.basename(jobPath)
+        #checkpoint
+        self._dump(fn, srcDir, ADDRESSES[fn])
+        #recode
+        subprocess.run(f"{self.crit} recode {srcDir} {aarch64Dir} aarch64 {fn} bin n",
+                       stdout=subprocess.DEVNULL,
+                       stderr=subprocess.STDOUT)
+        #scp
+        self.client.scp_dir_contents(aarch64Dir, destDir)
+        #restore
+        stdout, stderr, errno = self.client.execute(f"cd {srcDir}")
+        stdout, stderr, errno = self.client.execute(f"{self.criu} restore -vv -o restore.log --shell-job", sudo=True)
+    
+    def _spawn_independent_subprocess(self, args, cwd=None):
+        try:
+            pid = os.fork()
+            if pid > 0:
+                #parent process, return and continue execution.
+                os.waitpid(pid, 0)
+                return
+        except OSError as e:
+            print("fork failed: %d, (%s)" % e.errno, e.strerror)
+            return
+        
+        try:
+            pid2 = os.fork()
+            if pid2 > 0:
+                #exit from here to continue daemon's execution. 
+                #pid of the child will be waited on by init process.
+                os._exit(0)
+        except OSError as e:
+            print("fork 2 failed: %d, (%S)" % e.errno, e.strerror)
+        
+        # spawn the subprocess, wait on it, then exit.
+        proc = subprocess.Popen(args,
+                            cwd=cwd,
+                            universal_newlines=True,
+                            preexec_fn=os.setpgrp)
+        proc.wait()
+        os._exit(0)
+    
+    def _spawn_dependent_subprocess(self, args, cwd=None):
+        proc = subprocess.Popen(args, cwd=cwd, universal_newlines=True)
+        ret_code = proc.wait()
+        return ret_code
+    
+    def _check_pid(self, bin):
+        pid = [p.pid for p in psutil.process_iter() if p.name() == bin]
+        if pid: 
+            return str(pid[0])
+        return None
+    
+    def _run_and_infect(self, addr, bin, cwd):
+        debugger = os.path.join(self.rootDir, "tools", "debugger")
+        self._spawn_independent_subprocess([debugger, bin, addr], cwd=cwd)
+    
+    def _dump(self, bin, cwd, addr):
+        self._run_and_infect(addr, bin, cwd)
+        pid = self._check_pid(bin)
+        passwd = "" #TODO: fill in
+        command = f"{self.criu} dump -vv -o dump.log -t {pid} --shell-job"
+        command = f"echo {passwd} | sudo -S {command}"
+        subprocess.run(command,
+                       stdout=subprocess.DEVNULL,
+                       stderr=subprocess.STDOUT, cwd=cwd)
+    
+    def run(self):
+        self.counter = 0
+        start = time.perf_counter()
+        while True:
+            self._run()
+            self.counter += 1
+            diff = time.perf_counter() - start
+            if diff > RUN_DURATION:
+                self.actualRunDuration = diff
+                break
 
 
 def initialize_clients(clients):
