@@ -1,18 +1,20 @@
+from ast import arg
 import paramiko
 import os
-import sys
 import subprocess
 import logging
 import threading
 import time
 import psutil
+import glob
 
 from scp import SCPClient
 
-RUN_DURATION = 600 #seconds
+RUN_DURATION = 60 #seconds
 IDEAL_RUN_DURATION = 3600 #seconds
 
 THREAD_PER_BOARD = 3
+LOCAL_THREAD_COUNT = 7
 
 HOST = 1
 USER = 2
@@ -41,6 +43,8 @@ ADDRESSES = {
     EP : "0x501557",
     MG : "0x50155d"
 }
+
+LOCAL_PASSWD = ""
 
 class SshClient:
     def __init__(self, host, user, passwd, port):
@@ -100,6 +104,10 @@ class LocalThread (threading.Thread):
             if diff > RUN_DURATION:
                 self.actualRunDuration = diff
                 break
+        
+    def getThroughput(self):
+        return (self.counter/self.actualRunDuration)*IDEAL_RUN_DURATION
+
 
     def _runJobSet(self):
         self.jobSetIdx %= len(self.jobSet)
@@ -109,14 +117,14 @@ class LocalThread (threading.Thread):
         self.jobSetIdx += 1
             
 
-JOBSET1 = []
+JOBSET1 = ["/home/abhishek/bt/bt"]
 JOBSET2 = []
 JOBSET3 = []
 
 JOBSET = {
-    0: (JOBSET1, 0),
-    1: (JOBSET2, 0) ,
-    2: (JOBSET3, 0),
+    0: [JOBSET1, 0],
+    1: [JOBSET2, 0] ,
+    2: [JOBSET3, 0],
 }
 
 class RemoteThread (threading.Thread):
@@ -125,7 +133,8 @@ class RemoteThread (threading.Thread):
     #1. SCP the job set on the destination node from src node
     #2. run an SSH command to run the job remotely
     #3. Similar logic implemented in local thread to keep track of all the job run
-    def __init__(self, jobSetID, lock, host, user, passwd, port, tpath):
+    def __init__(self, jobSetID, lock, host, user, passwd, port):
+        threading.Thread.__init__(self)
         self.client = SshClient(host, user, passwd, port)
         self.jobSetId = jobSetID
         self.lock = lock
@@ -138,27 +147,34 @@ class RemoteThread (threading.Thread):
     def _getJobPath(self):
         with self.lock:
             job = JOBSET[self.jobSetId][0][JOBSET[self.jobSetId][1]]
-            JOBSET[self.jobSetId][1] += 1
+            JOBSET[self.jobSetId][1] = 1
             JOBSET[self.jobSetId][1] %= len(JOBSET[self.jobSetId][0])
         return job
+    
+    def _deleteFiles(self, cwd):
+        fileList = glob.glob(os.path.join(cwd, "*.img"), recursive=False)
+        for file in fileList:
+            deleteCommand = ["rm", file]
+            self._spawn_dependent_subprocess(deleteCommand, cwd=cwd, sudo=True, passwd=LOCAL_PASSWD)
     
     def _run(self):
         jobPath = self._getJobPath() #"/home/abhishek/bt/bt"
         aarch64Dir = os.path.join(os.path.dirname(jobPath), "aarch64")
         srcDir = os.path.dirname(jobPath)
-        destDir = "/temp/null/" #os.path.dirname(jobPath)
+        destDir = "/tmp/null/" #os.path.dirname(jobPath)
         fn = os.path.basename(jobPath)
         #checkpoint
         self._dump(fn, srcDir, ADDRESSES[fn])
         #recode
-        subprocess.run(f"{self.crit} recode {srcDir} {aarch64Dir} aarch64 {fn} bin n",
-                       stdout=subprocess.DEVNULL,
-                       stderr=subprocess.STDOUT)
-        #scp
+        recodeCommand = f"{self.crit} recode {srcDir} {aarch64Dir} aarch64 {fn} bin n".split()
+        self._spawn_dependent_subprocess(recodeCommand, cwd=srcDir, sudo=True, passwd=LOCAL_PASSWD)
+        # #scp
         self.client.scp_dir_contents(aarch64Dir, destDir)
-        #restore
-        stdout, stderr, errno = self.client.execute(f"cd {srcDir}")
-        stdout, stderr, errno = self.client.execute(f"{self.criu} restore -vv -o restore.log --shell-job", sudo=True)
+
+        self._deleteFiles(srcDir)
+        # #restore
+        # stdout, stderr, errno = self.client.execute(f"cd {srcDir}")
+        # stdout, stderr, errno = self.client.execute(f"{self.criu} restore -vv -o restore.log --shell-job", sudo=True)
     
     def _spawn_independent_subprocess(self, args, cwd=None):
         try:
@@ -188,15 +204,21 @@ class RemoteThread (threading.Thread):
         proc.wait()
         os._exit(0)
     
-    def _spawn_dependent_subprocess(self, args, cwd=None):
-        proc = subprocess.Popen(args, cwd=cwd, universal_newlines=True)
+    def _spawn_dependent_subprocess(self, args, cwd=None, sudo=False, passwd=""):
+        if sudo:
+            args = ["sudo",  "-S"] + args
+        proc = subprocess.Popen(args, cwd=cwd, 
+                            universal_newlines=True,
+                            stdin=subprocess.PIPE)
+        if sudo:
+            proc.communicate(passwd + "\n")
         ret_code = proc.wait()
         return ret_code
     
     def _check_pid(self, bin):
         pid = [p.pid for p in psutil.process_iter() if p.name() == bin]
         if pid: 
-            return str(pid[0])
+            return pid[0]
         return None
     
     def _run_and_infect(self, addr, bin, cwd):
@@ -204,14 +226,12 @@ class RemoteThread (threading.Thread):
         self._spawn_independent_subprocess([debugger, bin, addr], cwd=cwd)
     
     def _dump(self, bin, cwd, addr):
-        self._run_and_infect(addr, bin, cwd)
-        pid = self._check_pid(bin)
-        passwd = "" #TODO: fill in
-        command = f"{self.criu} dump -vv -o dump.log -t {pid} --shell-job"
-        command = f"echo {passwd} | sudo -S {command}"
-        subprocess.run(command,
-                       stdout=subprocess.DEVNULL,
-                       stderr=subprocess.STDOUT, cwd=cwd)
+        pid = None
+        while pid is None:
+            self._run_and_infect(addr, bin, cwd)
+            pid = self._check_pid(bin)
+        command = f"{self.criu} dump -vv -o dump.log -t {pid} --shell-job".split()
+        self._spawn_dependent_subprocess(command, cwd=cwd, sudo=True, passwd=LOCAL_PASSWD)
     
     def run(self):
         self.counter = 0
@@ -225,28 +245,45 @@ class RemoteThread (threading.Thread):
                 break
 
 
-def initialize_clients(clients):
-    logging.info("Initializing clients")
-    try:
-        for board in BOARDS:
-            client = SshClient(board[HOST], board[USER], board[PASSWD], board[PORT])
-            clients.append(client)
-    except:
-        logging.error("Could not initialize ssh clients")
-        exit(clients)
+# def initialize_clients(clients):
+#     logging.info("Initializing clients")
+#     try:
+#         for board in BOARDS:
+#             client = SshClient(board[HOST], board[USER], board[PASSWD], board[PORT])
+#             clients.append(client)
+#     except:
+#         logging.error("Could not initialize ssh clients")
+#         exit(clients)
 
-def exit(clients):
-    for client in clients:
-        client.close()
-    sys.exit(0)
+# def exit(clients):
+#     for client in clients:
+#         client.close()
+#     sys.exit(0)
+
+LOCALJOBSET = [
+    "/home/abhishek/dapper_throughput_efficiency_x86-64/bt_x86-64",
+    "/home/abhishek/dapper_throughput_efficiency_x86-64/cg_x86-64",
+    "/home/abhishek/dapper_throughput_efficiency_x86-64/ep_x86-64",
+    "/home/abhishek/dapper_throughput_efficiency_x86-64/mg_x86-64"
+]
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    clients = []
-    initialize_clients(clients)
-    for client in clients:
-        client.scp_dir_contents("/home/abhishek/bt/aarch64/", "/home/abhishek/bt/")
-    exit(clients)
+    # localThreads = []
+    # for i in range(LOCAL_THREAD_COUNT):
+    #     localThreads.append(LocalThread(LOCALJOBSET, i))
+    #     localThreads[-1].start()
+    
+    # for localThread in localThreads:
+    #     localThread.join()
+
+    try:
+        rThread = RemoteThread(0, threading.Lock(), "127.0.0.1", "abhishek", "abhishek", 5556)
+        rThread.start()
+        rThread.join()
+        rThread.client.close()
+    except Exception as e:
+        logging.error(e, "Error while working on remote thread")
 
 if __name__ == "__main__":
     main()
