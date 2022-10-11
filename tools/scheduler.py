@@ -1,4 +1,3 @@
-from ast import arg
 import paramiko
 import os
 import subprocess
@@ -28,11 +27,11 @@ EP = "ep"
 MG = "mg"
 
 ARM_BOARD1 = {
-    HOST : "127.0.0.1",
-    USER : "root",
-    PASSWD : "ubuntu",
-    PORT : 5556,
-    TPATH: "/home/abhishek/projects/TranProc"
+    HOST : "10.1.1.222",
+    USER : "abhishek",
+    PASSWD : "abhishek",
+    PORT : 22,
+    TPATH: "/home/abhishek/TransProc"
 }
 
 BOARDS = [ARM_BOARD1]
@@ -172,9 +171,11 @@ class RemoteThread (threading.Thread):
         self.client.scp_dir_contents(aarch64Dir, destDir)
 
         self._deleteFiles(srcDir)
-        # #restore
-        # stdout, stderr, errno = self.client.execute(f"cd {srcDir}")
-        # stdout, stderr, errno = self.client.execute(f"{self.criu} restore -vv -o restore.log --shell-job", sudo=True)
+        #restore
+        restoreCommand = f"ssh -t {self.client.user}@{self.client.host}".split()
+        restoreCommand.append(f"cd {srcDir} ; sudo {self.criu} restore -vv -o restore.log --shell-job")
+        subprocess.run(restoreCommand, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+        
     
     def _spawn_independent_subprocess(self, args, cwd=None):
         try:
@@ -237,7 +238,9 @@ class RemoteThread (threading.Thread):
         self.counter = 0
         start = time.perf_counter()
         while True:
-            self._run()
+            stdout, stderr, errno = self._run()
+            if errno != 0:
+                logging.error(f"Host: {self.client.host} Errno: {errno} Error while restoring remotely")
             self.counter += 1
             diff = time.perf_counter() - start
             if diff > RUN_DURATION:
@@ -277,13 +280,14 @@ def main():
     # for localThread in localThreads:
     #     localThread.join()
 
-    try:
-        rThread = RemoteThread(0, threading.Lock(), "127.0.0.1", "abhishek", "abhishek", 5556)
-        rThread.start()
-        rThread.join()
-        rThread.client.close()
-    except Exception as e:
-        logging.error(e, "Error while working on remote thread")
+    for board in BOARDS:
+        try:
+            rThread = RemoteThread(0, threading.Lock(), board[HOST], board[USER], board[PASSWD], board[PORT])
+            rThread.start()
+            rThread.join()
+            rThread.client.close()
+        except Exception as e:
+            logging.error(e, "Error while working on remote thread")
 
 if __name__ == "__main__":
     main()
