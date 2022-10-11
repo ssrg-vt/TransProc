@@ -9,7 +9,7 @@ import glob
 
 from scp import SCPClient
 
-RUN_DURATION = 60 #seconds
+RUN_DURATION = 600 #seconds
 IDEAL_RUN_DURATION = 3600 #seconds
 
 THREAD_PER_BOARD = 3
@@ -210,7 +210,8 @@ class RemoteThread (threading.Thread):
             args = ["sudo",  "-S"] + args
         proc = subprocess.Popen(args, cwd=cwd, 
                             universal_newlines=True,
-                            stdin=subprocess.PIPE)
+                            stdin=subprocess.PIPE,
+                            stdout=subprocess.DEVNULL)
         if sudo:
             proc.communicate(passwd + "\n")
         ret_code = proc.wait()
@@ -238,30 +239,15 @@ class RemoteThread (threading.Thread):
         self.counter = 0
         start = time.perf_counter()
         while True:
-            stdout, stderr, errno = self._run()
-            if errno != 0:
-                logging.error(f"Host: {self.client.host} Errno: {errno} Error while restoring remotely")
+            self._run()
             self.counter += 1
             diff = time.perf_counter() - start
             if diff > RUN_DURATION:
                 self.actualRunDuration = diff
                 break
-
-
-# def initialize_clients(clients):
-#     logging.info("Initializing clients")
-#     try:
-#         for board in BOARDS:
-#             client = SshClient(board[HOST], board[USER], board[PASSWD], board[PORT])
-#             clients.append(client)
-#     except:
-#         logging.error("Could not initialize ssh clients")
-#         exit(clients)
-
-# def exit(clients):
-#     for client in clients:
-#         client.close()
-#     sys.exit(0)
+    
+    def getThroughput(self):
+        return (self.counter/self.actualRunDuration)*IDEAL_RUN_DURATION
 
 LOCALJOBSET = [
     "/home/abhishek/dapper_throughput_efficiency_x86-64/bt_x86-64",
@@ -270,24 +256,41 @@ LOCALJOBSET = [
     "/home/abhishek/dapper_throughput_efficiency_x86-64/mg_x86-64"
 ]
 
+
+def printThroughput(localThreads, remoteThreads):
+    logging.info(f"Local thread throughput (jobs/hr): {[t.getThroughput() for t in localThreads]}")
+    logging.info(f"Remote thread throughput (jobs/hr): {[t.getThroughput() for t in remoteThreads]}")
+
+    net = sum([t.getThroughput() for t in localThreads] + [t.getThroughput() for t in remoteThreads])
+    logging.info(f"Net throughput (jobs/hr): {net}")
+
 def main():
     logging.basicConfig(level=logging.INFO)
-    # localThreads = []
-    # for i in range(LOCAL_THREAD_COUNT):
-    #     localThreads.append(LocalThread(LOCALJOBSET, i))
-    #     localThreads[-1].start()
     
-    # for localThread in localThreads:
-    #     localThread.join()
+    localThreads = []
+    remoteThreads = []
+
+    for i in range(LOCAL_THREAD_COUNT):
+        localThreads.append(LocalThread(LOCALJOBSET, i))
+        localThreads[-1].start()
 
     for board in BOARDS:
         try:
             rThread = RemoteThread(0, threading.Lock(), board[HOST], board[USER], board[PASSWD], board[PORT])
+            remoteThreads.append(rThread)
             rThread.start()
+        except Exception as e:
+            logging.error(e, "Error while starting remote threads")
+
+    for localThread in localThreads:
+        localThread.join()
+
+    for rThread in remoteThreads:
+        try:
             rThread.join()
             rThread.client.close()
         except Exception as e:
-            logging.error(e, "Error while working on remote thread")
+            logging.error(e, "Error running remote threads")
 
 if __name__ == "__main__":
     main()
