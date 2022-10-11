@@ -116,7 +116,7 @@ class LocalThread (threading.Thread):
         self.jobSetIdx += 1
             
 
-JOBSET1 = ["/home/abhishek/bt/bt"]
+JOBSET1 = ["/home/abhishek/ep1/ep", "/home/abhishek/ep2/ep", "/home/abhishek/ep3/ep"]
 JOBSET2 = []
 JOBSET3 = []
 
@@ -132,16 +132,20 @@ class RemoteThread (threading.Thread):
     #1. SCP the job set on the destination node from src node
     #2. run an SSH command to run the job remotely
     #3. Similar logic implemented in local thread to keep track of all the job run
-    def __init__(self, jobSetID, lock, host, user, passwd, port):
+    def __init__(self, jobSetID, threadID, lock, host, user, passwd, port):
         threading.Thread.__init__(self)
         self.client = SshClient(host, user, passwd, port)
         self.jobSetId = jobSetID
+        self.threadId = threadID
         self.lock = lock
         self.rootDir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.criu = os.path.join(self.rootDir, "criu-3.15", "criu", "criu")
         self.crit = os.path.join(self.rootDir, "criu-3.15", "crit", "crit")
         self.actualRunDuration = 0
         self.counter = 0
+    
+    def _print(self, msg):
+        logging.info(f"Thread:{self.threadId} Host:{self.client.host} {msg}")
     
     def _getJobPath(self):
         with self.lock:
@@ -169,9 +173,10 @@ class RemoteThread (threading.Thread):
         self._spawn_dependent_subprocess(recodeCommand, cwd=srcDir, sudo=True, passwd=LOCAL_PASSWD)
         # #scp
         self.client.scp_dir_contents(aarch64Dir, destDir)
-
+        self._print("Image files transferred!")
         self._deleteFiles(srcDir)
         #restore
+        self._print("Initiating remote restore")
         restoreCommand = f"ssh -t {self.client.user}@{self.client.host}".split()
         restoreCommand.append(f"cd {srcDir} ; sudo {self.criu} restore -vv -o restore.log --shell-job")
         subprocess.run(restoreCommand, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
@@ -224,10 +229,12 @@ class RemoteThread (threading.Thread):
         return None
     
     def _run_and_infect(self, addr, bin, cwd):
+        self._print(f"Running new process {bin}")
         debugger = os.path.join(self.rootDir, "tools", "debugger")
         self._spawn_independent_subprocess([debugger, bin, addr], cwd=cwd)
     
     def _dump(self, bin, cwd, addr):
+        self._print(f"Dumping process {bin}")
         pid = None
         while pid is None:
             self._run_and_infect(addr, bin, cwd)
@@ -250,18 +257,22 @@ class RemoteThread (threading.Thread):
         return (self.counter/self.actualRunDuration)*IDEAL_RUN_DURATION
 
 LOCALJOBSET = [
-    "/home/abhishek/dapper_throughput_efficiency_x86-64/bt_x86-64",
-    "/home/abhishek/dapper_throughput_efficiency_x86-64/cg_x86-64",
     "/home/abhishek/dapper_throughput_efficiency_x86-64/ep_x86-64",
-    "/home/abhishek/dapper_throughput_efficiency_x86-64/mg_x86-64"
+    # "/home/abhishek/dapper_throughput_efficiency_x86-64/bt_x86-64",
+    # "/home/abhishek/dapper_throughput_efficiency_x86-64/cg_x86-64",
+    # "/home/abhishek/dapper_throughput_efficiency_x86-64/ep_x86-64",
+    # "/home/abhishek/dapper_throughput_efficiency_x86-64/mg_x86-64"
 ]
 
 
 def printThroughput(localThreads, remoteThreads):
-    logging.info(f"Local thread throughput (jobs/hr): {[t.getThroughput() for t in localThreads]}")
-    logging.info(f"Remote thread throughput (jobs/hr): {[t.getThroughput() for t in remoteThreads]}")
+    lThroughput = [t.getThroughput() for t in localThreads]
+    rThroughput = [t.getThroughput() for t in remoteThreads]
 
-    net = sum([t.getThroughput() for t in localThreads] + [t.getThroughput() for t in remoteThreads])
+    logging.info(f"Local thread throughput (jobs/hr): {lThroughput}  Sum: {sum(lThroughput)}")
+    logging.info(f"Remote thread throughput (jobs/hr): {rThroughput}  Sum: {sum(rThroughput)}")
+
+    net = sum(lThroughput + rThroughput)
     logging.info(f"Net throughput (jobs/hr): {net}")
 
 def main():
@@ -274,13 +285,16 @@ def main():
         localThreads.append(LocalThread(LOCALJOBSET, i))
         localThreads[-1].start()
 
-    for board in BOARDS:
-        try:
-            rThread = RemoteThread(0, threading.Lock(), board[HOST], board[USER], board[PASSWD], board[PORT])
-            remoteThreads.append(rThread)
-            rThread.start()
-        except Exception as e:
-            logging.error(e, "Error while starting remote threads")
+    for boardNum in range(len(BOARDS)):
+        board = [BOARDS[boardNum]]
+        lock = threading.Lock()
+        for i in range(LOCAL_THREAD_COUNT):
+            try:
+                rThread = RemoteThread(boardNum, i, lock, board[HOST], board[USER], board[PASSWD], board[PORT])
+                remoteThreads.append(rThread)
+                rThread.start()
+            except Exception as e:
+                logging.error(e, "Error while starting remote threads")
 
     for localThread in localThreads:
         localThread.join()
@@ -291,6 +305,8 @@ def main():
             rThread.client.close()
         except Exception as e:
             logging.error(e, "Error running remote threads")
+    
+    printThroughput(localThreads, remoteThreads)
 
 if __name__ == "__main__":
     main()
