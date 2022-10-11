@@ -212,13 +212,10 @@ class RemoteThread (threading.Thread):
     
     def _spawn_dependent_subprocess(self, args, cwd=None, sudo=False, passwd=""):
         if sudo:
-            args = ["sudo",  "-S"] + args
+            args = ["sudo"] + args
         proc = subprocess.Popen(args, cwd=cwd, 
                             universal_newlines=True,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.DEVNULL)
-        if sudo:
-            proc.communicate(passwd + "\n")
+                            stdin=subprocess.PIPE)
         ret_code = proc.wait()
         return ret_code
     
@@ -236,9 +233,10 @@ class RemoteThread (threading.Thread):
     def _dump(self, bin, cwd, addr):
         self._print(f"Dumping process {bin}")
         pid = None
+        self._run_and_infect(addr, bin, cwd)
         while pid is None:
-            self._run_and_infect(addr, bin, cwd)
             pid = self._check_pid(bin)
+            time.sleep(0.1)
         command = f"{self.criu} dump -vv -o dump.log -t {pid} --shell-job".split()
         self._spawn_dependent_subprocess(command, cwd=cwd, sudo=True, passwd=LOCAL_PASSWD)
     
@@ -276,7 +274,7 @@ def printThroughput(localThreads, remoteThreads):
     logging.info(f"Net throughput (jobs/hr): {net}")
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     
     localThreads = []
     remoteThreads = []
@@ -286,15 +284,15 @@ def main():
         localThreads[-1].start()
 
     for boardNum in range(len(BOARDS)):
-        board = [BOARDS[boardNum]]
+        board = BOARDS[boardNum]
         lock = threading.Lock()
-        for i in range(LOCAL_THREAD_COUNT):
+        for i in range(THREAD_PER_BOARD):
             try:
                 rThread = RemoteThread(boardNum, i, lock, board[HOST], board[USER], board[PASSWD], board[PORT])
                 remoteThreads.append(rThread)
                 rThread.start()
             except Exception as e:
-                logging.error(e, "Error while starting remote threads")
+                logging.error("Error while starting remote threads")
 
     for localThread in localThreads:
         localThread.join()
@@ -304,7 +302,7 @@ def main():
             rThread.join()
             rThread.client.close()
         except Exception as e:
-            logging.error(e, "Error running remote threads")
+            logging.error("Error running remote threads")
     
     printThroughput(localThreads, remoteThreads)
 
