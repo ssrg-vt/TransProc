@@ -1,3 +1,4 @@
+from re import sub
 import paramiko
 import os
 import subprocess
@@ -42,8 +43,6 @@ ADDRESSES = {
     EP : "0x501557",
     MG : "0x50155d"
 }
-
-LOCAL_PASSWD = ""
 
 class SshClient:
     def __init__(self, host, user, passwd, port):
@@ -150,7 +149,7 @@ class RemoteThread (threading.Thread):
     def _getJobPath(self):
         with self.lock:
             job = JOBSET[self.jobSetId][0][JOBSET[self.jobSetId][1]]
-            JOBSET[self.jobSetId][1] = 1
+            JOBSET[self.jobSetId][1] += 1
             JOBSET[self.jobSetId][1] %= len(JOBSET[self.jobSetId][0])
         return job
     
@@ -158,7 +157,7 @@ class RemoteThread (threading.Thread):
         fileList = glob.glob(os.path.join(cwd, "*.img"), recursive=False)
         for file in fileList:
             deleteCommand = ["rm", file]
-            self._spawn_dependent_subprocess(deleteCommand, cwd=cwd, sudo=True, passwd=LOCAL_PASSWD)
+            self._spawn_dependent_subprocess(deleteCommand, cwd=cwd, sudo=True)
     
     def _run(self):
         jobPath = self._getJobPath() #"/home/abhishek/bt/bt"
@@ -170,7 +169,7 @@ class RemoteThread (threading.Thread):
         self._dump(fn, srcDir, ADDRESSES[fn])
         #recode
         recodeCommand = f"{self.crit} recode {srcDir} {aarch64Dir} aarch64 {fn} bin n".split()
-        self._spawn_dependent_subprocess(recodeCommand, cwd=srcDir, sudo=True, passwd=LOCAL_PASSWD)
+        self._spawn_dependent_subprocess(recodeCommand, cwd=srcDir, sudo=True)
         # #scp
         self.client.scp_dir_contents(aarch64Dir, destDir)
         self._print("Image files transferred!")
@@ -210,12 +209,13 @@ class RemoteThread (threading.Thread):
         proc.wait()
         os._exit(0)
     
-    def _spawn_dependent_subprocess(self, args, cwd=None, sudo=False, passwd=""):
+    def _spawn_dependent_subprocess(self, args, cwd=None, sudo=False):
         if sudo:
             args = ["sudo"] + args
         proc = subprocess.Popen(args, cwd=cwd, 
                             universal_newlines=True,
-                            stdin=subprocess.PIPE)
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.STDOUT)
         ret_code = proc.wait()
         return ret_code
     
@@ -238,7 +238,7 @@ class RemoteThread (threading.Thread):
             pid = self._check_pid(bin)
             time.sleep(0.1)
         command = f"{self.criu} dump -vv -o dump.log -t {pid} --shell-job".split()
-        self._spawn_dependent_subprocess(command, cwd=cwd, sudo=True, passwd=LOCAL_PASSWD)
+        self._spawn_dependent_subprocess(command, cwd=cwd, sudo=True)
     
     def run(self):
         self.counter = 0
@@ -274,7 +274,7 @@ def printThroughput(localThreads, remoteThreads):
     logging.info(f"Net throughput (jobs/hr): {net}")
 
 def main():
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     
     localThreads = []
     remoteThreads = []
