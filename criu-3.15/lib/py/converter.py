@@ -230,6 +230,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
             nr_pages = pm['nr_pages']
             st_vaddr = pm['vaddr']
             end_vaddr = st_vaddr + (nr_pages << 12)
+            if pm['flags'] == 2:
+                self.log("Skipping the lazy pages in get_stack_page_offset")
+                continue
             if(sp > end_vaddr):
                 pages_to_skip += nr_pages
                 continue
@@ -259,6 +262,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         pages_to_skip = 0
         num_pages = 0
         for p in pm_img['entries'][1:]:
+            if pm['flags'] == 2:
+                self.log("Skipping the lazy pages in get_stack_page_offset")
+                continue
             if int(p['vaddr'], 16) >= int(start_vaddr, 16) and int(p['vaddr'], 16) <= int(end_vaddr, 16):
                 num_pages = p['nr_pages']
                 code_offset = pages_to_skip << 12
@@ -323,6 +329,10 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         page_nbr=-1
         for pgmap in pagemap_img["entries"][:]:
             if "vaddr" not in pgmap.keys():
+                idx+=1
+                continue
+            if 'PE_LAZY' in pgmap["flags"]:
+                self.log("Skipping the lazy pages")
                 idx+=1
                 continue
             addr=int(pgmap["vaddr"], 16)
@@ -404,6 +414,10 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         pages_list=pagemap_img["entries"]
         for pgmap in pages_list:
             #FIXME: handle case first entry
+            if 'PE_LAZY' in pgmap["flags"]:
+                self.log("Skipping the lazy pages")
+                idx+=1
+                continue
             if "vaddr" not in pgmap.keys():
                 idx+=1
                 continue
