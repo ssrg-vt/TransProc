@@ -26,7 +26,7 @@ BIN := dc
 DEBUG := y
 
 spawn:
-	sudo $(DEBUGGER) $(BIN) $(ADDR)
+	$(DEBUGGER) $(BIN) $(ADDR)
 
 dump:
 	sudo $(CRIU) dump -vvv --shell-job -o dump.log -t $(PID)
