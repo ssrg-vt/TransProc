@@ -25,7 +25,7 @@ BIN := redis-server
 DEBUG := y
 
 attach:
-	$(TRACER) $(PID)
+	sudo $(TRACER) $(PID)
 
 dump:
 	sudo $(CRIU) dump -vvv --shell-job -o dump.log -t $(PID)
