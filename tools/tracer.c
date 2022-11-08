@@ -406,20 +406,54 @@ void *trace_thread(void *argp)
     pid = info->pid;
     indicator_addr = info->symbol_addr;
     num_threads = info->num_threads;
+    
+    if(thread_id == pid){
+        
+        err = ptrace(PTRACE_ATTACH, pid, NULL, NULL);
+        if(err < 0) {
+            log_error("PTRACE_ATTACH failed");
+            return NULL;
+        }
+        log_info("PTRACE_ATTACH successful!");
 
-    /* SEIZE the tracee thread */
-    err = ptrace(PTRACE_SEIZE, thread_id, NULL, NULL);
-    if(ptrace < 0) {
-        log_error("PTRACE_SEIZE failed for thread: %d", thread_id);
-        return NULL;
+        waitpid(pid, &wait_status, 0);
+        if(WIFSTOPPED(wait_status))
+            log_info("Process %d got a signal: %s", pid, strsignal(WSTOPSIG(wait_status)));
+        else
+            log_error("Wait");
+
+        data = 1;
+
+        ptrace(PTRACE_POKEDATA, pid, indicator_addr, (void *)data); 
+        log_info("Putting value %ld", data);
+
+        data = ptrace(PTRACE_PEEKDATA, pid, indicator_addr, NULL);
+        log_info("Read data: %ld", data);
+
+        err = ptrace(PTRACE_CONT, pid, NULL, NULL);
+        if(err < 0)
+            log_error("PTRACE_CONT failed");
+        else
+            log_info("PTRACE_CONT successful");
+
+        waitpid(thread_id, &wait_status, 0);
+        log_info("Thread %d got signal %s", thread_id, strsignal(WSTOPSIG(wait_status)));
     }
-    log_info("Thread %d seized", thread_id);
 
-    /* Wait for the compiler placed breakpoint to hit */
-    waitpid(thread_id, &wait_status, 0);
-    log_info("Thread %d: got signal %s", thread_id, \
+    if(thread_id != pid) {
+        /* SEIZE the tracee thread */
+        err = ptrace(PTRACE_SEIZE, thread_id, NULL, NULL);
+        if(ptrace < 0) {
+            log_error("PTRACE_SEIZE failed for thread: %d", thread_id);
+            return NULL;
+        }
+        log_info("Thread %d seized", thread_id);
+
+        /* Wait for the compiler placed breakpoint to hit */
+        waitpid(thread_id, &wait_status, 0);
+        log_info("Thread %d: got signal %s", thread_id, \
             strsignal(WSTOPSIG(wait_status)));
-
+    }
     err = get_regs(thread_id, &regs);
     if(err < 0) {
         log_error("Thread %d: failed to get register value", thread_id);
@@ -591,32 +625,6 @@ int main(int argc, char **argv)
         log_info("Symbol %s address: 0x%08lx", CHECK_MIGRATE, sa.check_migrate_addr);
     }
 
-    r = ptrace(PTRACE_ATTACH, pid, NULL, NULL);
-    if(r < 0) {
-        log_error("PTRACE_ATTACH failed");
-        return -1;
-    }
-    log_info("PTRACE_ATTACH successful!");
-
-    waitpid(pid, &wait_status, 0);
-    if(WIFSTOPPED(wait_status))
-        log_info("Process %d got a signal: %s", pid, strsignal(WSTOPSIG(wait_status)));
-    else
-        log_error("Wait");
-
-    data = 1;
-
-    ptrace(PTRACE_POKEDATA, pid, sa.indicator_addr, (void *)data); 
-    log_info("Putting value %ld", data);
-
-    data = ptrace(PTRACE_PEEKDATA, pid, sa.indicator_addr, NULL);
-    log_info("Read data: %ld", data);
-
-    r = ptrace(PTRACE_DETACH, pid, NULL, NULL);
-    if(r < 0)
-        log_error("PTRACE_DETACH failed");
-    else
-        log_info("PTRACE_DETACH successful");
 
     pthread_mutex_init(&lock, NULL);
 
