@@ -100,6 +100,16 @@ class RegsetAarch64:
         self.pc = 0
         self.x = [0] * 31
         self.v = [0] * 64
+
+    def deep_copy(self, regset):
+        self.sp = regset.sp
+        self.pc = regset.pc
+        self.x = []
+        for x in regset.x:
+            self.x.append(x)
+        self.v = []
+        for v in regset.v:
+            self.v.append(v)
     
     def copy_out(self, core):
         assert core['mtype'] == 'AARCH64', "The process image is not for aarch64"
