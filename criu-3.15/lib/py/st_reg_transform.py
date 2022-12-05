@@ -22,6 +22,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     act_sp = src_sp
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
+    act = 0
     while True:
         if src_handle.type == definitions.X86_64:
             src_act_regset = reg_x86_64.RegsetX8664()
@@ -37,6 +38,8 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
             dest_bp += dest_cs.frame_size
         else: #factor in the frame size differences between the first frame
             dest_bp += dest_cs.frame_size - src_cs.frame_size
+        if act == 0:
+            src_act_regset.deep_copy(src_rewrite_ctx.regset)
         src_handle.regops['set_sp'](act_sp, src_act_regset)
         src_handle.regops['set_bp'](src_bp, src_act_regset)
         dest_handle.regops['set_sp'](dest_sp, dest_act_regset)
@@ -54,6 +57,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
         dest_stack_size += dest_cs.frame_size
         (src_bp, src_pc) = _pop_frame(src_rewrite_ctx, src_sp, src_bp)
         act_sp += src_cs.frame_size
+        act += 1
         if _first_frame(src_cs):
             break
     dest_rewrite_ctx.stack_size = dest_stack_size
