@@ -126,8 +126,14 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
                 self.src_image_file_paths[CGROUP] = join(src_dir, f)
                 self.dest_image_file_paths[CGROUP] = join(dest_dir, f)
             if CORE in f:
-                self.src_image_file_paths[CORE] = join(src_dir, f)
-                self.dest_image_file_paths[CORE] = join(dest_dir, f)
+                if CORE in self.src_image_file_paths and CORE in self.dest_image_file_paths:
+                    self.src_image_file_paths[CORE].append(join(src_dir, f))
+                    self.dest_image_file_paths[CORE].append(join(dest_dir, f))
+                elif CORE not in self.src_image_file_paths and CORE not in self.dest_image_file_paths:
+                    self.src_image_file_paths[CORE] = [join(src_dir, f)]
+                    self.dest_image_file_paths[CORE] = [join(dest_dir, f)]
+                else:
+                    raise Exception("Core file cannot be in source cache but not in dest cache")
             if FDINFO in f:
                 self.src_image_file_paths[FDINFO] = join(src_dir, f)
                 self.dest_image_file_paths[FDINFO] = join(dest_dir, f)
@@ -265,7 +271,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     
     def copy_code_pages(self, code_offset, num_pages, vaddr, text_start, dest_pages):
         dest_pages.seek(code_offset)
-        dest = elf_utils.open_elf_file_fp(join(self.dest_dir, self.bin))
+        (d, b) = self.get_dest_bin_path()
+        dest = elf_utils.open_elf_file_fp(join(d, b))
         text = elf_utils.get_elf_section(dest, '.text')
         buffer = text.data()
         va = int(vaddr, 16)
@@ -446,6 +453,10 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
     @abstractmethod
     def copy_bin_files(self):
         pass
+    
+    @abstractmethod
+    def get_dest_bin_path(self):
+        pass
 
     @abstractmethod
     def assert_conditions(self):
@@ -511,7 +522,8 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         src_files_img = self.load_image_file(self.src_image_file_paths[FILES])
         (fid, idx) = self.get_binary_info(self.src_image_file_paths[FILES],
                                           self.src_image_file_paths[MM])
-        bin = join(self.dest_dir, self.bin)
+        (d, b) = self.get_dest_bin_path()
+        bin = join(d, b)
         assert os.path.isfile(bin)
         stat = os.stat(bin)
         dst_files_img = copy(src_files_img)
@@ -540,8 +552,9 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
 
         dest_mm_img = copy(src_mm_img)
         dest_pm_img = copy(src_pm_img)
-
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
+        
+        (d, b) = self.get_dest_bin_path()
+        dest_bin = elf_utils.open_elf_file(d, b)
         text_sec = elf_utils.get_elf_section(dest_bin, '.text')
         text_start = text_sec.header.sh_addr
         pg_off = text_sec.header.sh_offset
@@ -614,42 +627,44 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         self.log('Copied timens file')
 
     def transform_stack_and_regs(self): # call after transform_core_file
-        src_core = self.load_image_file(self.src_image_file_paths[CORE], False, True, False)
-        dest_core = self.load_image_file(self.dest_image_file_paths[CORE], False, True, False)
-        src_bin = elf_utils.open_elf_file(self.src_dir, self.bin)
-        dest_bin = elf_utils.open_elf_file(self.dest_dir, self.bin)
-        
-        if self.arch == AARCH64:
-            src_handle = StHandle(definitions.X86_64, src_bin)
-            dest_handle = StHandle(definitions.AARCH64, dest_bin)
-        
-            src_regset = reg_x86_64.RegsetX8664(src_core['entries'][self.entry_num])
-            dest_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
-        
-        elif self.arch == X8664:
-            dest_handle = StHandle(definitions.X86_64, dest_bin)
-            src_handle = StHandle(definitions.AARCH64, src_bin)
-        
-            dest_regset = reg_x86_64.RegsetX8664(dest_core['entries'][self.entry_num])
-            src_regset = reg_aarch64.RegsetAarch64(src_core['entries'][self.entry_num])
-        
-        else:
-            raise Exception("Architecture not supported")
-        
-        self.rewrite_context_init(src_handle, src_regset, dest_handle, dest_regset)
-        assert self.dest_rewrite_ctx, 'dest rewrite context not initialized'
-        assert self.src_rewrite_ctx, 'src rewrite context not initialized'
-        unwind_and_size(self.src_rewrite_ctx, self.dest_rewrite_ctx)
-        assert len(self.src_rewrite_ctx.activations) == \
-            len(self.dest_rewrite_ctx.activations), "act count unequal for src and dest"
-        for i in range(len(self.dest_rewrite_ctx.activations)):
-            self.src_rewrite_ctx.act = i
-            self.dest_rewrite_ctx.act = i
-            rewrite_frame(self.src_rewrite_ctx, self.dest_rewrite_ctx)
-        self.dest_rewrite_ctx.pages.close()
-        self.dest_rewrite_ctx.regset = self.dest_rewrite_ctx.activations[0].regset
-        self.dest_rewrite_ctx.regset.copy_out(dest_core['entries'][0])
-        self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
+        for i in range(len(self.src_image_file_paths[CORE])):
+            src_core = self.load_image_file(self.src_image_file_paths[CORE][i], False, True, False)
+            dest_core = self.load_image_file(self.dest_image_file_paths[CORE][i], False, True, False)
+            src_bin = elf_utils.open_elf_file(self.src_dir, self.bin)
+            (d, b) = self.get_dest_bin_path()
+            dest_bin = elf_utils.open_elf_file(d, b)
+            
+            if self.arch == AARCH64:
+                src_handle = StHandle(definitions.X86_64, src_bin)
+                dest_handle = StHandle(definitions.AARCH64, dest_bin)
+            
+                src_regset = reg_x86_64.RegsetX8664(src_core['entries'][self.entry_num])
+                dest_regset = reg_aarch64.RegsetAarch64(dest_core['entries'][self.entry_num])
+            
+            elif self.arch == X8664:
+                dest_handle = StHandle(definitions.X86_64, dest_bin)
+                src_handle = StHandle(definitions.AARCH64, src_bin)
+            
+                dest_regset = reg_x86_64.RegsetX8664(dest_core['entries'][self.entry_num])
+                src_regset = reg_aarch64.RegsetAarch64(src_core['entries'][self.entry_num])
+            
+            else:
+                raise Exception("Architecture not supported")
+            
+            self.rewrite_context_init(src_handle, src_regset, dest_handle, dest_regset)
+            assert self.dest_rewrite_ctx, 'dest rewrite context not initialized'
+            assert self.src_rewrite_ctx, 'src rewrite context not initialized'
+            unwind_and_size(self.src_rewrite_ctx, self.dest_rewrite_ctx)
+            assert len(self.src_rewrite_ctx.activations) == \
+                len(self.dest_rewrite_ctx.activations), "act count unequal for src and dest"
+            for j in range(len(self.dest_rewrite_ctx.activations)):
+                self.src_rewrite_ctx.act = j
+                self.dest_rewrite_ctx.act = j
+                rewrite_frame(self.src_rewrite_ctx, self.dest_rewrite_ctx)
+            self.dest_rewrite_ctx.pages.close()
+            self.dest_rewrite_ctx.regset = self.dest_rewrite_ctx.activations[0].regset
+            self.dest_rewrite_ctx.regset.copy_out(dest_core['entries'][0])
+            self.dump_image_file(self.dest_image_file_paths[CORE][i], dest_core)
 
     def rewrite_context_init(self, src_handle, src_regset, dest_handle, dest_regset):
         src_sp = src_handle.regops['sp'](src_regset)
@@ -673,7 +688,7 @@ class Converter():  # TODO: Extend the logic for multiple PIDs
         if os.path.exists(self.dest_dir):
             shutil.rmtree(self.dest_dir)
         os.makedirs(self.dest_dir)
-        self.copy_bin_files()
+        #self.copy_bin_files()
         self.transform_cgroup_file()
         self.transform_fdinfo_file()
         self.transform_fs_file()
@@ -695,21 +710,26 @@ class X8664Converter(Converter):
         self.arch = X8664
     
     def assert_conditions(self):  # call before calling recode
-        core_file = self.load_image_file(self.src_image_file_paths[CORE])
-        entry = self.entry_num
-        arch = core_file['entries'][entry]['mtype']
+        for cf in self.src_image_file_paths[CORE]:
+            core_file = self.load_image_file(cf)
+            entry = self.entry_num
+            arch = core_file['entries'][entry]['mtype']
+            assert arch != X8664, "Same src and dest arch do not need transformation"
         x64_bin = join(self.bin_dir, self.bin+X8664_SUFFIX)
         base = join(self.src_dir, self.bin)
         a_stat = os.stat(x64_bin)
         b_stat = os.stat(base)
         #assert a_stat.st_mode == b_stat.st_mode, 'rwx modes do not match for src and dest bin'
-        assert arch != X8664, "Same src and dest arch do not need transformation"
     
     def copy_bin_files(self):
         x64_bin = join(self.bin_dir, self.bin+X8664_SUFFIX)
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(x64_bin, base)
         self.log('Binary copied')
+    
+    def get_dest_bin_path(self):
+        x64_bin = self.bin+X8664_SUFFIX
+        return (self.bin_dir, x64_bin)
     
     def get_vsyscall_template(self):
         mm={
@@ -763,124 +783,125 @@ class X8664Converter(Converter):
     def transform_core_file(self):
         assert CORE in self.src_image_file_paths, 'src core image file path not found'
         assert CORE in self.dest_image_file_paths, 'dest core image file path not found'
-        src_core = self.load_image_file(self.src_image_file_paths[CORE])
-        dest_core = copy(src_core)
-        dest_regs = X86Struct()
-        
-        # Convert the type
-        dest_core['entries'][self.entry_num]['mtype']="X86_64"
+        for i in range(len(self.src_image_file_paths[CORE])):
+            src_core = self.load_image_file(self.src_image_file_paths[CORE][i])
+            dest_core = copy(src_core)
+            dest_regs = X86Struct()
+            
+            # Convert the type
+            dest_core['entries'][self.entry_num]['mtype']="X86_64"
 
-        # Convert thread info
-        src_info=dest_core['entries'][self.entry_num]['ti_aarch64']
-        dst_info=OrderedDict()
-        tid_addr = int(src_info["clear_tid_addr"], 16)
-        dst_info["clear_tid_addr"] = hex(tid_addr)
+            # Convert thread info
+            src_info=dest_core['entries'][self.entry_num]['ti_aarch64']
+            dst_info=OrderedDict()
+            tid_addr = int(src_info["clear_tid_addr"], 16)
+            dst_info["clear_tid_addr"] = hex(tid_addr)
 
-        # gpregs
-        reg_dict=OrderedDict()
-        translate={"rbp":"bp", "rbx":"bx", "rax":"ax", "rcx":"cx", 
-            "rdx":"dx", "rsi":"si", "rdi":"di", "rsp":"sp"}
-        for grn in X86Struct.gregs:
-            trgn=grn
-            if grn in translate.keys():
-                trgn=translate[grn]
-            reg_dict[trgn]=getattr(dest_regs, grn)
-        reg_dict["ip"]=dest_regs.rip
-        reg_dict["flags"] = hex(0x202) #0x206 or 0x202?
-        reg_dict["orig_ax"] = hex(0xffffffffffffffff) #FIXME: to check
-        reg_dict["fs_base"]=hex(src_info["tls"] - 272)
-        self.log("fs_base", reg_dict["fs_base"])
-        reg_dict["gs_base"]="0x0"
+            # gpregs
+            reg_dict=OrderedDict()
+            translate={"rbp":"bp", "rbx":"bx", "rax":"ax", "rcx":"cx", 
+                "rdx":"dx", "rsi":"si", "rdi":"di", "rsp":"sp"}
+            for grn in X86Struct.gregs:
+                trgn=grn
+                if grn in translate.keys():
+                    trgn=translate[grn]
+                reg_dict[trgn]=getattr(dest_regs, grn)
+            reg_dict["ip"]=dest_regs.rip
+            reg_dict["flags"] = hex(0x202) #0x206 or 0x202?
+            reg_dict["orig_ax"] = hex(0xffffffffffffffff) #FIXME: to check
+            reg_dict["fs_base"]=hex(src_info["tls"] - 272)
+            self.log("fs_base", reg_dict["fs_base"])
+            reg_dict["gs_base"]="0x0"
 
-        # csregs
-        for grn in X86Struct.csregs:
-            trgn=grn
-            if grn in translate.keys():
-                trgn=translate[grn]
-            reg_dict[trgn]=getattr(dest_regs, grn)
-        reg_dict["ss"]="0x2b"
-        reg_dict["cs"]="0x33"
-        reg_dict["mode"]="NATIVE"
-        self.log(reg_dict)
-        dst_info["gpregs"]=reg_dict
+            # csregs
+            for grn in X86Struct.csregs:
+                trgn=grn
+                if grn in translate.keys():
+                    trgn=translate[grn]
+                reg_dict[trgn]=getattr(dest_regs, grn)
+            reg_dict["ss"]="0x2b"
+            reg_dict["cs"]="0x33"
+            reg_dict["mode"]="NATIVE"
+            self.log(reg_dict)
+            dst_info["gpregs"]=reg_dict
 
-        # fpregs
-        self.log("WARNING: floating point registers not fully supported")
-        dst_info["fpregs"]= {
-            "cwd": 0, "swd": 0, "twd": 0, "fop": 0,
-            "rip": 0, "rdp": 0, "mxcsr": 8064, "mxcsr_mask": 65535,
-            "st_space": [ 0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0],
-            "xmm_space": [0, 0, 0, 0, 1024, 0, 10498320, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0,
-                        0, 0, 0, 0, 0, 0, 0, 0, 
-                        0, 0, 0, 0, 0, 0, 0, 0], 
-            "xsave": { "xstate_bv": 2,
-                        "ymmh_space": [0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0,
-                                    0, 0, 0, 0, 0, 0, 0, 0],
-                        "bndcsr_state": [0, 0, 0, 0, 0, 0, 0, 0] 
-                    }
-        }
+            # fpregs
+            self.log("WARNING: floating point registers not fully supported")
+            dst_info["fpregs"]= {
+                "cwd": 0, "swd": 0, "twd": 0, "fop": 0,
+                "rip": 0, "rdp": 0, "mxcsr": 8064, "mxcsr_mask": 65535,
+                "st_space": [ 0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 2147483648, 16447, 0, 0, 2147483648, 16447, 0],
+                "xmm_space": [0, 0, 0, 0, 3762528790, 1072013384, 0, 0,
+                            2696277389, 1051772663, 0, 0, 2405181686, 0, 20, 0, 
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0,
+                            0, 0, 0, 0, 0, 0, 0, 0, 
+                            0, 0, 0, 0, 0, 0, 0, 0], 
+                "xsave": { "xstate_bv": 3,
+                            "ymmh_space": [0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0, 0, 0],
+                            "bndcsr_state": [0, 0, 0, 0, 0, 0, 0, 0] 
+                        }
+            }
 
-        # TLS
-        dst_info["tls"]=[
-                    {
-                    "entry_number": 12, 
-                    "base_addr": 0, 
-                    "limit": 0, 
-                    "seg_32bit": False, 
-                    "contents_h": False, 
-                    "contents_l": False, 
-                    "read_exec_only": True, 
-                    "limit_in_pages": False, 
-                    "seg_not_present": True, 
-                    "useable": False
-                    }, 
-                    {
-                    "entry_number": 13, 
-                    "base_addr": 0, 
-                    "limit": 0, 
-                    "seg_32bit": False, 
-                    "contents_h": False, 
-                    "contents_l": False, 
-                    "read_exec_only": True, 
-                    "limit_in_pages": False, 
-                    "seg_not_present": True, 
-                    "useable": False
-                    }, 
-                    {
-                    "entry_number": 14, 
-                    "base_addr": 0, 
-                    "limit": 0, 
-                    "seg_32bit": False, 
-                    "contents_h": False, 
-                    "contents_l": False, 
-                    "read_exec_only": True, 
-                    "limit_in_pages": False, 
-                    "seg_not_present": True, 
-                    "useable": False
-                    }
-        ]
+            # TLS
+            dst_info["tls"]=[
+                        {
+                        "entry_number": 12, 
+                        "base_addr": 0, 
+                        "limit": 0, 
+                        "seg_32bit": False, 
+                        "contents_h": False, 
+                        "contents_l": False, 
+                        "read_exec_only": True, 
+                        "limit_in_pages": False, 
+                        "seg_not_present": True, 
+                        "useable": False
+                        }, 
+                        {
+                        "entry_number": 13, 
+                        "base_addr": 0, 
+                        "limit": 0, 
+                        "seg_32bit": False, 
+                        "contents_h": False, 
+                        "contents_l": False, 
+                        "read_exec_only": True, 
+                        "limit_in_pages": False, 
+                        "seg_not_present": True, 
+                        "useable": False
+                        }, 
+                        {
+                        "entry_number": 14, 
+                        "base_addr": 0, 
+                        "limit": 0, 
+                        "seg_32bit": False, 
+                        "contents_h": False, 
+                        "contents_l": False, 
+                        "read_exec_only": True, 
+                        "limit_in_pages": False, 
+                        "seg_not_present": True, 
+                        "useable": False
+                        }
+            ]
 
-        # delete old entry and add the new one
-        del dest_core['entries'][0]['ti_aarch64'] 
-        ordered_dict_prepend(dest_core['entries'][0], 'thread_info', dst_info)
-        ordered_dict_prepend(dest_core['entries'][0], 'mtype', "X86_64")
+            # delete old entry and add the new one
+            del dest_core['entries'][0]['ti_aarch64'] 
+            ordered_dict_prepend(dest_core['entries'][0], 'thread_info', dst_info)
+            ordered_dict_prepend(dest_core['entries'][0], 'mtype', "X86_64")
 
-        self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
-        self.log('Core file template created')
+            self.dump_image_file(self.dest_image_file_paths[CORE][i], dest_core)
+            self.log('Core file template created')
 
 
 #x86-64 to aarch64
@@ -890,21 +911,26 @@ class Aarch64Converter(Converter):
         self.arch = AARCH64
 
     def assert_conditions(self):  # call before calling recode
-        core_file = self.load_image_file(self.src_image_file_paths[CORE])
-        entry = self.entry_num
-        arch = core_file['entries'][entry]['mtype']
+        for cf in self.src_image_file_paths[CORE]:
+            core_file = self.load_image_file(cf)
+            entry = self.entry_num
+            arch = core_file['entries'][entry]['mtype']
+            assert arch != AARCH64, "Same src and dest arch do not need transformation"
         aarch64_bin = join(self.bin_dir, self.bin+AARCH64_SUFFIX)
         base = join(self.src_dir, self.bin)
         a_stat = os.stat(aarch64_bin)
         b_stat = os.stat(base)
         assert a_stat.st_mode == b_stat.st_mode, 'rwx modes do not match for src and dest bin'
-        assert arch != AARCH64, "Same src and dest arch do not need transformation"
 
     def copy_bin_files(self):
         aarch64_bin = join(self.bin_dir, self.bin+AARCH64_SUFFIX)
         base = join(self.dest_dir, self.bin)
         shutil.copyfile(aarch64_bin, base)
         self.log('Binary copied')
+    
+    def get_dest_bin_path(self):
+        aarch64_bin = self.bin+AARCH64_SUFFIX
+        return (self.bin_dir, aarch64_bin)
 
     def get_vsyscall_template(self):
         return None, None, None
@@ -951,44 +977,46 @@ class Aarch64Converter(Converter):
     def transform_core_file(self):
         assert CORE in self.src_image_file_paths, 'src core image file path not found'
         assert CORE in self.dest_image_file_paths, 'dest core image file path not found'
-        src_core = self.load_image_file(self.src_image_file_paths[CORE])
-        dest_core = copy(src_core)
-        dest_tls = int(src_core['entries'][0]['thread_info']['gpregs']['fs_base'], 16) + 272
-        dest_regs = Aarch64Struct()
+        for i in range(len(self.src_image_file_paths[CORE])):
+            src_core = self.load_image_file(self.src_image_file_paths[CORE][i])
+            dest_core = copy(src_core)
+            dest_tls = int(src_core['entries'][0]['thread_info']['gpregs']['fs_base'], 16) + 272
+            dest_regs = Aarch64Struct()
 
-        #type conversion
-        dest_core['entries'][0]['mtype']="AARCH64"
+            #type conversion
+            dest_core['entries'][0]['mtype']="AARCH64"
 
-        #convert thread_info
-        src_info=dest_core['entries'][0]['thread_info']
-        dst_info=OrderedDict() 
-        dst_info["clear_tid_addr"]=src_info["clear_tid_addr"]
-        dst_info["tls"]=dest_tls
+            #convert thread_info
+            src_info=dest_core['entries'][0]['thread_info']
+            dst_info=OrderedDict() 
+            dst_info["clear_tid_addr"]=src_info["clear_tid_addr"]
+            dst_info["tls"]=dest_tls
 
-        #gpregs
-        dst_info["gpregs"]=OrderedDict()
-        #regs
-        reg_list=list()
-        for reg in dest_regs.regs:
-            reg_list.append(hex(reg.x).rstrip('L'))
-        dst_info["gpregs"]["regs"]=reg_list
-        #sp, pc, pstate
-        dst_info["gpregs"]["sp"]=dest_regs.sp
-        dst_info["gpregs"]["pc"]=dest_regs.pc
-        dst_info["gpregs"]["pstate"]="0x60000000" #?
-        #fpsimd
-        dst_info["fpsimd"]=OrderedDict()
-        vreg_list=list()
-        for vreg in dest_regs.vregs:
-            #FIXME:check order
-            vreg_list.append(hex(vreg.x).rstrip('L'))
-            vreg_list.append(hex(vreg.y).rstrip('L'))
-        dst_info["fpsimd"]["vregs"]=vreg_list
-        dst_info["fpsimd"]["fpsr"]=0 #?
-        dst_info["fpsimd"]["fpcr"]=0 #?
+            #gpregs
+            dst_info["gpregs"]=OrderedDict()
+            #regs
+            reg_list=list()
+            for reg in dest_regs.regs:
+                reg_list.append(hex(reg.x).rstrip('L'))
+            dst_info["gpregs"]["regs"]=reg_list
+            #sp, pc, pstate
+            dst_info["gpregs"]["sp"]=dest_regs.sp
+            dst_info["gpregs"]["pc"]=dest_regs.pc
+            dst_info["gpregs"]["pstate"]="0x60000000" #?
+            #fpsimd
+            dst_info["fpsimd"]=OrderedDict()
+            vreg_list=list()
+            for vreg in dest_regs.vregs:
+                #FIXME:check order
+                vreg_list.append(hex(vreg.x).rstrip('L'))
+                vreg_list.append(hex(vreg.y).rstrip('L'))
+            dst_info["fpsimd"]["vregs"]=vreg_list
+            dst_info["fpsimd"]["fpsr"]=0 #?
+            dst_info["fpsimd"]["fpcr"]=0 #?
 
-        #delete old entry and add the new one
-        del dest_core['entries'][0]['thread_info']
-        dest_core['entries'][0]['ti_aarch64'] = dst_info
-        self.dump_image_file(self.dest_image_file_paths[CORE], dest_core)
-        self.log('Core file template created')
+            #delete old entry and add the new one
+            del dest_core['entries'][0]['thread_info']
+            dest_core['entries'][0]['ti_aarch64'] = dst_info
+            dest_core['entries'][0]['tc']['task_state'] = 1 #change task state to alive
+            self.dump_image_file(self.dest_image_file_paths[CORE][i], dest_core)
+            self.log('Core file template created')

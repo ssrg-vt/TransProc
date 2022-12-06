@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
 from audioop import add
 from distutils.debug import DEBUG
 import json

@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
 import subprocess
 import os
 from paramiko import SSHClient

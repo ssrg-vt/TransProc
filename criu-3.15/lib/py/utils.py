@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
 import os
 import struct
 import sys
@@ -23,7 +28,7 @@ def print_stack(sp, bp, ip, pages, pages_to_skip, funcs, adr, st_vaddr):
     pages.seek(((pages_to_skip) << 12) + (sp - st_vaddr))
     ba = []
     diff = temp - sp
-    for _ in range(diff/8):
+    for _ in range(diff//8):
         ba.append(struct.unpack('<Q', pages.read(8))[0])
     j = 1
     for i in range(len(ba)-1, 1, -1):

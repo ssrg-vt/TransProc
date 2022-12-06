@@ -1,4 +1,9 @@
 """
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
+"""
 DWARF register mappings
 """
 
@@ -110,6 +115,41 @@ class RegsetX8664:
         self.mmx = [0] * 8 #TODO Read from file
         self.xmm = [0] * 62
         self.st = [0] * 32
+
+    def deep_copy(self, regset):
+        self.rip = regset.rip
+        self.rax = regset.rax
+        self.rdx = regset.rdx
+        self.rcx = regset.rcx
+        self.rbx = regset.rbx
+        self.rsi = regset.rsi
+        self.rdi = regset.rdi
+        self.rbp = regset.rbp
+        self.rsp = regset.rsp
+        self.r8 = regset.r8
+        self.r9 = regset.r9
+        self.r10 = regset.r10
+        self.r11 = regset.r11
+        self.r12 = regset.r12
+        self.r13 = regset.r13
+        self.r14 = regset.r14
+        self.r15 = regset.r15
+        self.cs = regset.cs
+        self.ss = regset.ss
+        self.ds = regset.ds
+        self.es = regset.es
+        self.fs = regset.fs
+        self.gs = regset.gs
+        self.rflags = regset.rflags
+        self.mmx = []
+        for mmx in regset.mmx:
+            self.mmx.append(mmx)
+        self.xmm = []
+        for xmm in regset.xmm:
+            self.xmm.append(xmm)
+        self.st = []
+        for st in regset.st:
+            self.st.append(st)
     
     def copy_out(self, core):
         assert core['mtype'] == 'X86_64', "The process image is not for x86_64"
@@ -138,7 +178,7 @@ class RegsetX8664:
         core['thread_info']['gpregs']['gs'] = self.gs
         #core['thread_info']['gpregs']['flags'] = self.rflags
         # self.mmx = [0] * 8 #TODO Read from file
-        for i in range(62): # core image has 62 entries for xmm
-            core['thread_info']['fpregs']['xmm_space'][i] = self.xmm[i]
+        # for i in range(62): # core image has 62 entries for xmm
+        #     core['thread_info']['fpregs']['xmm_space'][i] = self.xmm[i]
         # for i in range(32): # core image has 32 entries for st
         #     core['thread_info']['fpregs']['st_space'][i] = self.st

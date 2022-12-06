@@ -1,3 +1,8 @@
+"""
+Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
+abapat28@vt.edu
+"""
+
 import struct
 import os
 
@@ -17,6 +22,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
     act_sp = src_sp
     dest_handle.regops['set_sp'](dest_sp, dest_rewrite_ctx.regset)
     dest_handle.regops['set_bp'](dest_bp, dest_rewrite_ctx.regset)
+    act = 0
     while True:
         if src_handle.type == definitions.X86_64:
             src_act_regset = reg_x86_64.RegsetX8664()
@@ -25,11 +31,15 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
             src_act_regset = reg_aarch64.RegsetAarch64()
             dest_act_regset = reg_x86_64.RegsetX8664()
         src_cs = src_handle.get_call_site_from_addr(src_pc)
+        if not src_cs:
+            break
         dest_cs = dest_handle.get_call_site_from_id(src_cs.id)
         if len(dest_rewrite_ctx.activations) > 0:
             dest_bp += dest_cs.frame_size
         else: #factor in the frame size differences between the first frame
             dest_bp += dest_cs.frame_size - src_cs.frame_size
+        if act == 0:
+            src_act_regset.deep_copy(src_rewrite_ctx.regset)
         src_handle.regops['set_sp'](act_sp, src_act_regset)
         src_handle.regops['set_bp'](src_bp, src_act_regset)
         dest_handle.regops['set_sp'](dest_sp, dest_act_regset)
@@ -47,6 +57,7 @@ def unwind_and_size(src_rewrite_ctx, dest_rewrite_ctx):
         dest_stack_size += dest_cs.frame_size
         (src_bp, src_pc) = _pop_frame(src_rewrite_ctx, src_sp, src_bp)
         act_sp += src_cs.frame_size
+        act += 1
         if _first_frame(src_cs):
             break
     dest_rewrite_ctx.stack_size = dest_stack_size
@@ -236,8 +247,8 @@ def _get_val(ctx, val, arch=False, return_loc = False):
     regops = ctx.st_handle.regops
     sp = regops['sp'](ctx.regset)
     if val.type == definitions.SM_REGISTER:
-        # TODO: Determine whether ctx or act
-        return regops['reg_val'](val.regnum, ctx.regset)
+        # TODO: Determine whether ctx or act #Determined act.
+        return regops['reg_val'](val.regnum, act.regset)
     elif val.type == definitions.SM_DIRECT or val.type == definitions.SM_INDIRECT:
         st_addr = regops['reg_val'](
             val.regnum, act.regset) + val.offset_or_const
