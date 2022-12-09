@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) Abhishek Bapat. SSRG, Virginia Tech.
+ * abapat28@vt.edu
+ */
+
 #include <string.h>
 #include <sys/ptrace.h>
 #include <pthread.h>
@@ -35,7 +40,7 @@ typedef unsigned long address;
 struct tracee_thread_info {
     pid_t tid; //thread id
     pid_t pid; //pid
-    address *eq_points; //equivalence points
+    size_t num_threads;
 };
 
 
@@ -53,6 +58,7 @@ struct call_site {
     unsigned long long arch_live_offset;
     unsigned short padding;
 } __attribute__ ((packed));
+
 
 int get_thread_ids(pid_t *thread_ids, size_t *entries, pid_t pid, \
         size_t max_size)
@@ -208,19 +214,48 @@ unsigned long set_breakpoint(pid_t pid, unsigned long addr)
 }
 
 
-void remove_breakpoint(pid_t pid, unsigned long addr, unsigned long data, \
-        struct user_regs_struct *regs)
+void remove_breakpoint(pid_t pid, unsigned long addr, unsigned long data)
+{
+    ptrace(PTRACE_POKETEXT, pid, (void *)addr, (void *)data);
+}
+
+void update_regs(pid_t pid, struct user_regs_struct *regs)
 {
     struct iovec io;
 
-    ptrace(PTRACE_POKETEXT, pid, (void *)addr, (void *)data);
     io.iov_base = regs;
     io.iov_len = sizeof(struct user_regs_struct);
 
 #ifdef __x86_64__
     regs->rip -= 1;
 #endif
+#ifdef __aarch64__
+    regs->pc -= 4;
+#endif
+
     ptrace(PTRACE_SETREGSET, pid, (void *)NT_PRSTATUS, (void *)&io);
+}
+
+
+long get_regs(pid_t cpid, struct user_regs_struct *regs)
+{
+    long r;
+    struct iovec io;
+    io.iov_base = regs;
+    io.iov_len = sizeof(struct user_regs_struct);
+    r = ptrace(PTRACE_GETREGSET, cpid, (void *)NT_PRSTATUS, (void *)&io);
+    return r;
+}
+
+
+long set_regs(pid_t pid, struct user_regs_struct *regs)
+{
+    long r;
+    struct iovec io;
+    io.iov_base = regs;
+    io.iov_len = sizeof(struct user_regs_struct);
+    r = ptrace(PTRACE_SETREGSET, pid, (void *)NT_PRSTATUS, (void *)&io);
+    return r;
 }
 
 
@@ -247,7 +282,8 @@ void print_error_code(int err)
 }
 
 
-int get_eq_point_addresses(const char *bin_path, unsigned long **addrs)
+int get_eq_point_addresses(const char *bin_path, unsigned long **addrs, \
+        unsigned int *num_entries)
 {
     Elf32_Ehdr eh;
     Elf64_Ehdr eh64;
@@ -259,6 +295,7 @@ int get_eq_point_addresses(const char *bin_path, unsigned long **addrs)
     struct call_site *sh_cs;
     unsigned long sh_cs_size;
     unsigned long *addr;
+    unsigned int entries;
 
     fd = open(bin_path, O_RDONLY|O_SYNC);
     if(fd < 0) {
@@ -313,8 +350,8 @@ int get_eq_point_addresses(const char *bin_path, unsigned long **addrs)
         }
     }
 
-
-    addr = malloc(sizeof(unsigned long)*(sh_cs_size/sizeof(struct call_site)));
+    entries = sh_cs_size/sizeof(struct call_site);
+    addr = malloc(sizeof(unsigned long)*(entries));
     if(!addr) {
         log_error("Could not allocate memory for storing addresses");
         err = -EMEM;
@@ -327,6 +364,7 @@ int get_eq_point_addresses(const char *bin_path, unsigned long **addrs)
     }
 
     *addrs = addr;
+    *num_entries = entries;
 
 exit:
     if (!sh_tbl)
@@ -345,13 +383,16 @@ exit:
 int main(int argc, char **argv)
 {
     int err = 0;
-    int i;
+    int i, wait_status;
     pid_t pid;
     pid_t thread_ids[MAX_THREADS];
     char bin_path[MAX_STRING];
     size_t num_threads;
     ssize_t ret;
     unsigned long *eq_point_addrs;
+    unsigned long *original_instructions;
+    unsigned int num_addrs;
+    struct user_regs_struct regs;
 
     if (argc != 2) {
         log_error("Usage: %s [pid]", argv[0]);
@@ -372,6 +413,7 @@ int main(int argc, char **argv)
         log_info("Thread %d has id: %d", i+1, thread_ids[i]);
     }
 
+
     ret = get_binary_path(pid, bin_path, MAX_STRING);
     if(ret <= 0) {
         log_error("Error finding binary path");
@@ -380,23 +422,69 @@ int main(int argc, char **argv)
     }
     log_info("Binary path found: %s", bin_path);
 
-    if(kill(pid, SIGSTOP) != 0) {
+    err = ptrace(PTRACE_ATTACH, pid, NULL, NULL);
+    if(err < 0) {
+        log_error("PTRACE_ATTACH failed");
+        err = -EAPI;
+        goto exit;
+    }
+
+    waitpid(pid, &wait_status, 0);
+    if(WIFSTOPPED(wait_status))
+        log_info("Process %d got a signal: %s", pid, strsignal(WSTOPSIG(wait_status)));
+    else
+        log_error("Wait");
+
+    err = get_eq_point_addresses(bin_path, &eq_point_addrs, &num_addrs);
+    log_info("Equivalence points found!");
+
+    original_instructions = malloc(sizeof(unsigned long)*num_addrs);
+    if(!original_instructions) {
+        log_error("Could not allocate memory for original instructions");
+        err = -EMEM;
+        goto exit;
+    }
+
+    for(i = 0; i < num_addrs; i++){
+        original_instructions[i] = set_breakpoint(pid, eq_point_addrs[i]);
+    }
+    log_info("Breakpoints inserted");
+
+    err = ptrace(PTRACE_CONT, pid, NULL, NULL);
+    if(err < 0)
+        log_error("PTRACE_CONT failed");
+    else
+        log_info("PTRACE_CONT successful");
+
+    waitpid(pid, &wait_status, 0);
+    log_info("Thread %d got signal %s", pid, strsignal(WSTOPSIG(wait_status)));
+
+    err = get_regs(pid, &regs);
+    if(err < 0) {
+        log_error("Thread %d: failed to get register value", pid);
+        err = -EAPI;
+        goto exit;
+    }
+
+    for(i = 0; i < num_addrs; i++) {
+        remove_breakpoint(pid, eq_point_addrs[i], original_instructions[i]);
+    }
+    log_info("Breakpoints removed");
+
+    update_regs(pid, &regs);
+
+     if(kill(pid, SIGSTOP) != 0) {
         log_error("Cannot SIGSTOP");
         err = -EAPI;
         goto exit;
     }
 
-    err = get_eq_point_addresses(bin_path, &eq_point_addrs);
-
-    if(kill(pid, SIGCONT) != 0) {
-        log_error("Cannot SIGCONT");
-        err = -EAPI;
-        goto exit;
-    }
-
 exit:
-    if(!eq_point_addrs)
+    if(eq_point_addrs != NULL)
         free(eq_point_addrs);
+
+    if(original_instructions != NULL)
+        free(original_instructions);
 
     print_error_code(err);
     return 0;
