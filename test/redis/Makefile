@@ -33,6 +33,9 @@ dump:
 transform:
 	sudo $(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
 
+shuffle:
+	sudo $(CRIT) ss $(CURR) $(BIN)
+
 restore:
 	chmod +x $(BIN)
 	sudo $(CRIU) restore -vvv --shell-job -o restore.log
