@@ -35,15 +35,22 @@ def get_top_stack_frame(mmi, pms, core , exe):
     func_info = elf_utils.find_functions(exe)
     offset_pages = 0
     offset_bytes = 0
+    pmap_found = False
     for pmap in pms[1:]:
         if pmap['vaddr'] <= sp < pmap['vaddr'] + pmap['nr_pages'] * mmap.PAGESIZE:
             offset_bytes = sp - pmap['vaddr']
+            pmap_found = True
             break
         else:
             offset_pages += pmap['nr_pages']
             continue
+
+    if not pmap_found:
+        raise Exception("SP outside PMAP region")
+        
     bp -= sp
     offset_sp = offset_pages * mmap.PAGESIZE + offset_bytes
     offset_bp = bp + offset_sp
     file = 'pages-%d.img' % (pms[0]['pages_id'])
+
     return (file, ip, sp, offset_sp, offset_bp, list(func_info))

@@ -610,6 +610,7 @@ def examine_code(opts):
 
 
 def examine_stack(opts):
+    is_gcc = False
     ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
@@ -622,7 +623,16 @@ def examine_stack(opts):
                                                                                             core , 
                                                                                             opts['exe'])
         _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
-        page_file = os.path.join(opts['dir'], page_file)         
+        page_file = os.path.join(opts['dir'], page_file)
+
+        with open(opts['exe'], 'r+b') as f:
+            elffile = ELFFile(f)
+            try:
+                section = elf_utils.get_elf_section(
+                    elffile, stack_map_utils.STACKMAP_SECTION)
+            except IndexError:
+                is_gcc = True
+
         with contextlib.closing(stack_ops.Stack(page_file,
                                         ip,
                                         sp,
@@ -630,6 +640,7 @@ def examine_stack(opts):
                                         offset_bp,
                                         func_info,
                                         func_info_img,
+                                        is_gcc,
                                         path_exe = opts['exe'],
                                         arch = core['entries'][0]['mtype'])) as swalk:          
             swalk.view_all()
@@ -646,6 +657,7 @@ def examine(opts):
 
 
 def stack_shuffle(opts):
+    is_gcc = False
     ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
@@ -655,6 +667,15 @@ def stack_shuffle(opts):
                     dinf(opts, 'core-%d.img' % pid))
         page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, pms, core, opts['exe'])
         _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
+
+        with open(opts['exe'], 'r+b') as f:
+            elffile = ELFFile(f)
+            try:
+                section = elf_utils.get_elf_section(
+                    elffile, stack_map_utils.STACKMAP_SECTION)
+            except IndexError:
+                is_gcc = True
+
         page_file = os.path.join(opts['dir'], page_file)   
         with contextlib.closing(stack_ops.Stack(page_file,
                                                 ip,
@@ -663,41 +684,43 @@ def stack_shuffle(opts):
                                                 offset_bp,
                                                 func_info,
                                                 func_info_img,
+                                                is_gcc,
                                                 path_exe = opts['exe'],
                                                 arch = core['entries'][0]['mtype'])) as sshuffle:          
             shuffled_info = sshuffle.shuffle_all()        
 
-        func_info = elf_utils.find_functions(opts['exe'])
-        with open(opts['exe'], 'r+b') as f:
-            elffile = ELFFile(f)
-            section = elf_utils.get_elf_section(
-                elffile, stack_map_utils.STACKMAP_SECTION)
-            _, sm_info = stack_map_utils.parse_stack_maps(section, core['entries'][0]['mtype'])
-            sm_base = section['sh_offset']
-            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
-                try:
-                    mv = memoryview(mm).cast('B')
-                    for name, stack_offset in shuffled_info.items():
-                        for info in func_info:
-                            if info['name'] == name:
-                                func_address = info['saddr']['exe_offset']
-                                break
+        if not is_gcc:
+            func_info = elf_utils.find_functions(opts['exe'])
+            with open(opts['exe'], 'r+b') as f:
+                elffile = ELFFile(f)
+                section = elf_utils.get_elf_section(
+                    elffile, stack_map_utils.STACKMAP_SECTION)
+                _, sm_info = stack_map_utils.parse_stack_maps(section, core['entries'][0]['mtype'])
+                sm_base = section['sh_offset']
+                with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
+                    try:
+                        mv = memoryview(mm).cast('B')
+                        for name, stack_offset in shuffled_info.items():
+                            for info in func_info:
+                                if info['name'] == name:
+                                    func_address = info['saddr']['exe_offset']
+                                    break
 
-                        for source_offset, (dest_offset, _) in stack_offset.items():
-                            if core['entries'][0]['mtype'] == 'X86_64':
-                                if source_offset in sm_info[func_address]['stack_offsets'].keys():
-                                    sm_offsets = sm_info[func_address]['stack_offsets'][source_offset]
-                                    for sm_offset in sm_offsets:
-                                        mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = dest_offset
-                            else:
-                                tsource_offset = source_offset - (sm_info[func_address]['stack_size'] - 0x10)
-                                tdest_offset = dest_offset - (sm_info[func_address]['stack_size'] - 0x10)
-                                if tsource_offset in sm_info[func_address]['stack_offsets'].keys():
-                                    sm_offsets = sm_info[func_address]['stack_offsets'][tsource_offset]
-                                    for sm_offset in sm_offsets:
-                                        mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = tdest_offset
-                finally:
-                    del mv                     
+                            for source_offset, (dest_offset, _) in stack_offset.items():
+                                if core['entries'][0]['mtype'] == 'X86_64':
+                                    if source_offset in sm_info[func_address]['stack_offsets'].keys():
+                                        sm_offsets = sm_info[func_address]['stack_offsets'][source_offset]
+                                        for sm_offset in sm_offsets:
+                                            mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = dest_offset
+                                else:
+                                    tsource_offset = source_offset - (sm_info[func_address]['stack_size'] - 0x10)
+                                    tdest_offset = dest_offset - (sm_info[func_address]['stack_size'] - 0x10)
+                                    if tsource_offset in sm_info[func_address]['stack_offsets'].keys():
+                                        sm_offsets = sm_info[func_address]['stack_offsets'][tsource_offset]
+                                        for sm_offset in sm_offsets:
+                                            mv[sm_base + sm_offset: sm_base + sm_offset + 0x4].cast('i')[0] = tdest_offset
+                    finally:
+                        del mv           
 
 
 def main():

@@ -1,0 +1,32 @@
+diff --git a/src/Makefile b/src/Makefile
+index 0de0a1c..51ab2a4 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -112,7 +112,7 @@ ifeq ($(uname_S),DragonFly)
+ 	FINAL_LIBS+= -lpthread
+ else
+ 	# All the other OSes (notably Linux)
+-	FINAL_LDFLAGS+= -rdynamic
++	FINAL_LDFLAGS+= -static
+ 	FINAL_LIBS+=-ldl -pthread -lrt
+ endif
+ endif
+@@ -285,7 +285,7 @@ gcov:
+ 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
+ 
+ noopt:
+-	$(MAKE) OPTIMIZATION="-O0"
++	$(MAKE) OPTIMIZATION="-O0" CFLAGS="-fno-omit-frame-pointer"
+ 
+ valgrind:
+ 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
+diff --git a/src/bio.h b/src/bio.h
+index 4b15d1c..413eb33 100644
+--- a/src/bio.h
++++ b/src/bio.h
+@@ -39,4 +39,4 @@ void bioKillThreads(void);
+ #define BIO_CLOSE_FILE    0 /* Deferred close(2) syscall. */
+ #define BIO_AOF_FSYNC     1 /* Deferred AOF fsync. */
+ #define BIO_LAZY_FREE     2 /* Deferred objects freeing. */
+-#define BIO_NUM_OPS       3
++#define BIO_NUM_OPS       0

@@ -303,7 +303,7 @@ class StackFrame:
 class Stack:
     """ Class to represent stack of the checkpointed process.
     """
-    def __init__(self, filepath, ip, sp, offset_sp, offset_bp, func_info, func_info_img, path_exe = None, arch = None):
+    def __init__(self, filepath, ip, sp, offset_sp, offset_bp, func_info, func_info_img, is_gcc, path_exe = None, arch = None):
         """ Class constructor to repsent entire stack read from pages-%.img.
 
         Args:
@@ -327,6 +327,7 @@ class Stack:
         if arch.upper() not in ('X86_64', 'AARCH64',):
             raise Exception("Unsupported Architecture")
         self.arch = arch.upper()
+        self.is_gcc = is_gcc
 
     def close(self):
         if self.file:
@@ -393,6 +394,8 @@ class Stack:
                 # Get next bp by reading content at current frames bp and then
                 # adjusting that value to represent offset within pages-%.img
                 bp = 0 if not val[0] else (val[0]-self.sp_run) + self.offset_sp
+                if self.is_gcc and bp < 0:
+                    bp = 0
             else:
                 bp = 0 if not val[-2] else (val[-2] + 0x8 - self.sp_run) + self.offset_sp
 
