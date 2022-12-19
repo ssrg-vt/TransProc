@@ -5,7 +5,6 @@ import mmap
 import random
 import contextlib
 import struct
-import code
 import time
 from array import array
 from pathlib import Path
@@ -15,7 +14,6 @@ from click import BadParameter
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import elf_utils
 from codewalk import code_decode
-from pprint import pprint as pp
 
 class StackFrame:
     """ Class representing a single stack frame.

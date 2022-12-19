@@ -35,7 +35,10 @@ def outf(opts):
 
 
 def dinf(opts, name, mode=None):
-    return open(os.path.join(opts['dir'], name), mode='rb')
+    if not mode:
+        return open(os.path.join(opts['dir'], name))
+    else:
+        return open(os.path.join(opts['dir'], name), mode)
 
 
 def edit(opts):
@@ -592,13 +595,13 @@ def examine_code(opts):
     """ Function to dump disassembled code for user defined functions. The code is
     read from the dumped code section in pages-%.img.
     """
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img', 'rb'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid, 'rb'))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid, 'rb'))['entries']
         core = pycriu.images.load(
-                    dinf(opts, 'core-%d.img' % pid))
+                    dinf(opts, 'core-%d.img' % pid, 'rb'))
         _, func_info = code_utils.get_code_region(mmi, pms, opts['exe'])
         with contextlib.closing(code_decode.Disassemble(opts['exe'], arch = core['entries'][0]['mtype'])) as disasm:
             for info in func_info:
@@ -610,13 +613,13 @@ def examine_code(opts):
 
 
 def examine_stack(opts):
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img', 'rb'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']    
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid, 'rb'))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid, 'rb'))['entries']    
         core = pycriu.images.load(
-                    dinf(opts, 'core-%d.img' % pid))
+                    dinf(opts, 'core-%d.img' % pid, 'rb'))
         page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, 
                                                                                             pms, 
                                                                                             core , 
@@ -646,13 +649,13 @@ def examine(opts):
 
 
 def stack_shuffle(opts):
-    ps_img = pycriu.images.load(dinf(opts, 'pstree.img'))
+    ps_img = pycriu.images.load(dinf(opts, 'pstree.img', 'rb'))
     for p in ps_img['entries']:
         pid = get_task_id(p, 'pid')
-        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid))['entries'][0]
-        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid))['entries']    
+        mmi = pycriu.images.load(dinf(opts, 'mm-%d.img' % pid, 'rb'))['entries'][0]
+        pms = pycriu.images.load(dinf(opts, 'pagemap-%d.img' % pid, 'rb'))['entries']    
         core = pycriu.images.load(
-                    dinf(opts, 'core-%d.img' % pid))
+                    dinf(opts, 'core-%d.img' % pid, 'rb'))
         page_file, ip, sp, offset_sp, offset_bp, func_info = stack_utils.get_top_stack_frame(mmi, pms, core, opts['exe'])
         _, func_info_img = code_utils.get_code_region(mmi, pms, opts['exe'])
         page_file = os.path.join(opts['dir'], page_file)   

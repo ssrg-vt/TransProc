@@ -8,6 +8,8 @@ DEST := 10.1.1.222
 CRIU := $(TRANSPROC)/criu-3.15/criu/criu
 CRIT := $(TRANSPROC)/criu-3.15/crit/crit
 
+PYTHON := $(shell which python3)
+
 DEBUGGER := $(TRANSPROC)/tools/debugger
 
 TRACER := $(TRANSPROC)/tools/tracer
@@ -32,10 +34,10 @@ dump:
 	sudo $(CRIU) dump -vvv --shell-job -o dump.log -t $(PID)
 
 transform:
-	sudo $(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
+	sudo $(PYTHON) $(CRIT) recode $(CURR) $(CURR)/$(TGT) $(TGT) $(BIN) $(BINDIR) $(DEBUG) 
 
 shuffle:
-	sudo $(CRIT) ss $(CURR) $(BIN)
+	sudo $(PYTHON) $(CRIT) ss $(CURR) $(BIN)
 	
 restore:
 	chmod +x $(BIN)

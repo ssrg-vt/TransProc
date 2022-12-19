@@ -1,5 +1,4 @@
 from collections import defaultdict
-from pprint import pprint as pp
 from elftools.elf.elffile import ELFFile
 from capstone import *
 from keystone import *
@@ -9,7 +8,6 @@ import sys
 import mmap
 import contextlib
 import re
-import code
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import elf_utils
