@@ -3,6 +3,7 @@ Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
 abapat28@vt.edu
 """
 
+from collections import defaultdict
 import struct
 import sys
 
@@ -184,9 +185,10 @@ def print_stack_map_data(stack_maps):
                 al.print_val()
 
 
-def parse_stack_maps(section):
+def parse_stack_maps(section, arch = None):
     assert section.name == STACKMAP_SECTION
     buffer = section.data()
+    sm_info = defaultdict(lambda:{'id' : -1, 'stack_size' : -1 ,'stack_offsets' : {}})
     offset = 0
     stack_maps = []
     py_ver = sys.version_info
@@ -201,14 +203,21 @@ def parse_stack_maps(section):
         num_constants = struct.unpack('<I', buffer[offset+8:offset+12])[0]
         num_records = struct.unpack('<I', buffer[offset+12:offset+16])[0]
         func_records = _parse_function_records(buffer, offset, num_funcs, 16)
+        for idx, record in enumerate(func_records):
+            sm_info[record.function_addr]['id'] = idx
+            sm_info[record.function_addr]['stack_size'] = record.stack_size
         constants = _parse_constants(
             buffer, offset, num_constants, 16+(num_funcs*FUNC_RECORD_SIZE))
-        (call_sites, offset) = _parse_call_site_records(buffer, offset, num_records, 16+(
-            num_funcs*FUNC_RECORD_SIZE)+(num_constants*CONST_RECORD_SIZE))
+        (call_sites, offset, cs_info) = _parse_call_site_records(buffer, offset, num_records, 16+(
+            num_funcs*FUNC_RECORD_SIZE)+(num_constants*CONST_RECORD_SIZE), arch)
+        for address in sm_info.keys():
+            sm_info[address]['stack_offsets'].update(cs_info[sm_info[address]['id']])
+        sm_info[record.function_addr]
         stack_map = StackMap(version, reserved, reserved2, num_funcs,
                              num_constants, num_records, func_records, constants, call_sites)
         stack_maps.append(stack_map)
-    return stack_maps
+        
+    return stack_maps, sm_info
 
 
 def parse_unwind_addrs(section, dump = False):
@@ -247,7 +256,7 @@ def parse_unwind_locs(section, dump = False):
 def parse_live_values(section, num_live_vals, dump = False):
     assert section.name == LIVE_VALUE_SECTION
     buffer = section.data()
-    live_vals = _parse_live_values(buffer, 0, num_live_vals, 0)
+    live_vals, _ = _parse_live_values(buffer, 0, num_live_vals, 0)
     if dump:
         for l in live_vals:
             l.print_val()
@@ -320,16 +329,17 @@ def _parse_constants(buffer, sm_offset, num_constants, const_offset):
     return constants
 
 
-def _parse_call_site_records(buffer, sm_offset, num_records, record_offset):
+def _parse_call_site_records(buffer, sm_offset, num_records, record_offset, arch = None):
     call_sites = []
     offset = sm_offset + record_offset
+    cs_info = defaultdict(lambda: defaultdict(list))
     for _ in range(num_records):
         id = struct.unpack('<Q', buffer[offset: offset+8])[0]
         func_idx = struct.unpack('<I', buffer[offset+8: offset+12])[0]
         offs = struct.unpack('<I', buffer[offset+12: offset+16])[0]
         reserved = struct.unpack('<H', buffer[offset+16: offset+18])[0]
         num_locations = struct.unpack('<H', buffer[offset+18: offset+20])[0]
-        locations = _parse_live_values(buffer, offset, num_locations, 20)
+        locations, offset_infos = _parse_live_values(buffer, offset, num_locations, 20, arch)
         padding = struct.unpack(
             '<H', buffer[offset+20+(num_locations*LIVE_VALUE_SIZE): offset+22+(num_locations*LIVE_VALUE_SIZE)])[0]
         num_live_outs = struct.unpack(
@@ -348,11 +358,14 @@ def _parse_call_site_records(buffer, sm_offset, num_records, record_offset):
         if offset % 8 != 0:
             offset += 4
         call_sites.append(call_site)
-    return (call_sites, offset)
+        for stack_offset, section_offset in offset_infos:
+            cs_info[func_idx][stack_offset].append(section_offset)
+    return (call_sites, offset, cs_info)
 
 
-def _parse_live_values(buffer, cs_offset, num_locations, location_offset):
+def _parse_live_values(buffer, cs_offset, num_locations, location_offset, arch = None):
     live_vals = []
+    offset_infos = []
     py_ver = sys.version_info
     for i in range(num_locations):
         offset = cs_offset + location_offset + (i*LIVE_VALUE_SIZE)
@@ -369,11 +382,18 @@ def _parse_live_values(buffer, cs_offset, num_locations, location_offset):
         type = (val & 0b11110000) >> 4
         regnum = struct.unpack('<H', buffer[offset+2: offset+4])[0]
         offset_or_const = struct.unpack('<i', buffer[offset+4: offset+8])[0]
+
+        if arch == 'X86_64':
+            if regnum == 6 and type != 1:
+                offset_infos.append((offset_or_const, offset+4))
+        elif arch == 'AARCH64':
+            if regnum == 29 and type != 1:
+                offset_infos.append((offset_or_const, offset+4))
         alloca_size = struct.unpack('<I', buffer[offset+8: offset+12])[0]
         live_val = LiveValue(is_temp, is_dup, is_alloca, is_ptr,
                              type, size, regnum, offset_or_const, alloca_size)
         live_vals.append(live_val)
-    return live_vals
+    return live_vals, offset_infos
 
 
 def _parse_live_outs(buffer, cs_offset, num_live_outs, lo_offset):

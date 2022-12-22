@@ -1,35 +1,7 @@
-"""
-Copyright (c) 2021. Abhishek Bapat. SSRG, Virginia Tech.
-abapat28@vt.edu
-"""
-
 from elftools.elf.elffile import ELFFile
 from elftools.elf.sections import SymbolTableSection
-import os
+
 import sys
-
-SCN_MAGIC = 0x012c747d
-
-def open_elf_file(dir, bin):
-    f = open(os.path.join(dir, bin), 'rb')
-    elffile = ELFFile(f)
-    return elffile
-
-def open_elf_file_fp(bin):
-    f = open(bin, 'rb')
-    elffile = ELFFile(f)
-    return elffile
-
-def get_elf_section(elffile, section_name = ''):
-    if section_name == '':
-        return [section for section in elffile.iter_sections()]
-    else:
-        return [section for section in elffile.iter_sections() if section.name == section_name][0]
-    
-def get_num_entries(section):
-    if section.header.sh_entsize:
-        return section.header.sh_size // section.header.sh_entsize
-    return -1
 
 def get_function_offset(file, function):
     try:
@@ -96,3 +68,10 @@ def find_functions(file):
 
     except Exception as e:
         print('Could not process request: {}'.format(e))
+
+if __name__ == '__main__':
+    for file in sys.argv[1:]:
+        info = find_functions(file)
+        if info is not None:
+            print('\nFilepath: {}'.format(file))
+            print(info)
