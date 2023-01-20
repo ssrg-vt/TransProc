@@ -1,0 +1,4 @@
+rce-redis-exploit.gif : Terminal recording showcasing successful redis rce exploit.
+rce-redis-mitigated.gif : Terminal recording showcasing mitigated redis rce explot after stack shuffling.
+
+exploit: https://github.com/Ridter/redis-rce, https://github.com/n0b0dyCN/redis-rogue-server
