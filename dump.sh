@@ -56,5 +56,5 @@ python3 $DAPPER_PATH/criu-3.15/crit/crit recode $path ./aarch64/ aarch64 $1 $pat
 echo "Copying process images to the remote machine..."
 scp -q -r ./aarch64 arm:~
 
-## Execute restoration on the remote node
+## Execute restoration on the remote node via "ssh -t"
 #ssh -t arm 'sudo ~/TransProc/criu-3.15/criu/criu restore -vv -o restore.log -j -D aarch64'
