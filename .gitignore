@@ -60,3 +60,5 @@ tracer
 criu-3.15.tar.bz2
 test/loop/loop
 vanilla-dump/
+dapper-vms
+dapper-vms.pub
