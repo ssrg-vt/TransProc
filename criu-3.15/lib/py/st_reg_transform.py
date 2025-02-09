@@ -271,7 +271,12 @@ def _get_val(ctx, val, arch=False, return_loc = False):
                         raw_val.append(struct.unpack(
                             '<Q', ctx.pages.read(8))[0])
             else:
-                raw_val = struct.unpack('<Q', ctx.pages.read(8))[0]
+                if val.size == 4:
+                    raw_val = struct.unpack('<I', ctx.pages.read(4))[0]
+                elif val.size == 8:
+                    raw_val = struct.unpack('<Q', ctx.pages.read(8))[0]
+                else:
+                    raise Exception("Size not supported for spilled value!")
         else:
             raw_val = struct.unpack('<Q', ctx.pages.read(8))[0]
         if return_loc:
@@ -398,7 +403,12 @@ def _put_val(dest_ctx, dest_val, raw_val, arch=False, return_loc = False, fixup_
                     for i in range(write_count):
                         write_val.append(struct.pack("Q", raw_val[i]))
             else:
-                write_val.append(struct.pack("Q", raw_val))
+                if dest_val.size == 4:
+                    write_val.append(struct.pack("I", raw_val))
+                elif dest_val.size == 8:
+                    write_val.append(struct.pack("Q", raw_val))
+                else:
+                    raise Exception("Size not supported for spilled value!")
         else:
             if dest_val.operand_size == 1:
                 write_val.append(struct.pack("B", raw_val))
